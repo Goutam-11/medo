@@ -18,6 +18,9 @@ local DEFAULTS = {
 }
 
 local doc
+local history_days = {}
+local report = nil
+local last_export = nil
 local last_published = nil
 local last_cmd_rev = 0
 
@@ -72,16 +75,41 @@ local function counts()
   return done, total, carried, pending
 end
 
+-- Closed days live in history.json; the service keeps them in memory so the
+-- view can build the sparkline and reports without a disk read per publish.
+local function refresh_history()
+  local data = store.load_history()
+  if type(data) == "table" and type(data.days) == "table" then
+    history_days = data.days
+  else
+    history_days = {}
+  end
+end
+
+-- What the current day looks like if it closed now; also the source of the
+-- live score and of the report's final bar.
+local function live_snapshot()
+  return logic.snapshot(doc.day, doc.tasks, doc.carried_in, setting("default_estimate"))
+end
+
 local function view()
   local done, total, carried, pending = counts()
+  local snapshot = live_snapshot()
   return {
     day = doc.day,
     done = done,
     total = total,
-    score = logic.score(doc.tasks, setting("default_estimate")),
+    score = snapshot.score,
     carried = carried,
+    carried_in = tonumber(doc.carried_in) or 0,
     pending_count = pending,
     streak = (doc.streak and doc.streak.current) or 0,
+    streak_best = (doc.streak and doc.streak.best) or 0,
+    target = tonumber(setting("streak_threshold")) or 70,
+    next_due = logic.next_due(doc.tasks),
+    sparkline = logic.sparkline(history_days, snapshot, doc.day, 7),
+    report = report,
+    last_export = last_export,
     revision = doc.revision or 0,
     now = now(),
     ready = true,
@@ -97,6 +125,65 @@ local function publish(force)
   if not force and doc.revision == last_published then return end
   last_published = doc.revision
   noctalia.state.set("view", view())
+end
+
+-- ── reports and exports ─────────────────────────────────────────────────────
+
+local function build_report(period)
+  local chosen = period == "monthly" and "monthly" or "weekly"
+  local snapshot = logic.report(history_days, live_snapshot(), chosen, doc.day, {
+    threshold = tonumber(setting("streak_threshold")) or 70,
+    cap = tonumber(setting("daily_cap")) or 3,
+    limit = 4,
+  })
+  if snapshot then
+    -- lets the panel notice that a later task change made the report stale
+    snapshot.for_revision = doc.revision or 0
+  end
+  return snapshot
+end
+
+-- Render the requested report and write it into export_dir. Markdown is the
+-- default (PLAN open decision 7); JSON carries the report object as-is.
+local function handle_export(period, format)
+  local chosen = period == "monthly" and "monthly" or "weekly"
+  local target_format = format == "json" and "json" or "markdown"
+  local snapshot = build_report(chosen)
+  if not snapshot then
+    noctalia.notifyError("medo", "export: could not build the report")
+    return false
+  end
+  report = snapshot
+
+  local dir = store.export_dir(setting("export_dir"))
+  local extension = target_format == "json" and "json" or "md"
+  local path = string.format("%s/medo-%s-%s.%s", dir, chosen, snapshot.end_day, extension)
+  local payload
+  if target_format == "json" then
+    payload = noctalia.json.encode({
+      schema = 1,
+      generated_ms = now(),
+      report = snapshot,
+    }, true)
+  else
+    payload = logic.report_markdown(snapshot,
+      os.date("%Y-%m-%d %H:%M", math.floor(now() / 1000)))
+  end
+  if not payload then
+    noctalia.notifyError("medo", "export: could not encode the report")
+    return false
+  end
+
+  local ok, err = store.write_text(path, payload)
+  if not ok then
+    noctalia.notifyError("medo", "export failed: " .. tostring(err))
+    return false
+  end
+  last_export = { path = path, format = target_format, period = chosen, ms = now() }
+  noctalia.log("medo: exported " .. path)
+  noctalia.notify("medo", "exported " .. path)
+  publish(true)
+  return true
 end
 
 -- ── mutations (each returns whether the document changed) ───────────────────
@@ -204,6 +291,8 @@ local function rollover(target_day, reason)
   doc.closed_days = (tonumber(doc.closed_days) or 0) + 1
 
   store.append_history(plan.snapshot)
+  refresh_history()
+  report = nil
   store.backup(doc, plan.snapshot.day)
   persist()
   publish(true)
@@ -229,6 +318,91 @@ local function seed_demo()
   noctalia.notify("medo", string.format("seeded %d tasks for %s", #doc.tasks, doc.day))
 end
 
+-- ── report fixture (debug) ──────────────────────────────────────────────────
+--
+-- 14 closed days ending yesterday, then three live tasks. Progress lists are
+-- (60 min, 30 min, 20 min) so a day's score is hand-checkable from the weights:
+--   100/60/0 → 71, 100/60/100 → 89, 100/100/100 → 100, 80/0/0 → 44,
+--   100/100/60 → 93, 100/0/0 → 55, 100/100/0 → 82.
+local REPORT_PATTERN = {
+  { 100, 60, 0 }, { 100, 60, 100 }, { 100, 100, 100 }, { 80, 0, 0 },
+  { 100, 100, 60 }, { 100, 0, 0 }, { 100, 100, 0 }, { 100, 60, 0 },
+  { 100, 60, 100 }, { 100, 100, 100 }, { 100, 100, 0 }, { 80, 0, 0 },
+  { 100, 100, 100 }, { 100, 100, 60 },
+}
+
+local FIXTURE_TASKS = {
+  { title = "Deep work", estimate_min = 60, tag = "work" },
+  { title = "Review", estimate_min = 30, tag = "work" },
+  { title = "Inbox zero", estimate_min = 20, tag = "life" },
+}
+
+local function fixture_day_tasks(day, progress_list)
+  local y, m, d = day:match("^(%d%d%d%d)-(%d%d)-(%d%d)$")
+  local due = os.time({
+    year = tonumber(y), month = tonumber(m), day = tonumber(d),
+    hour = 17, min = 0, sec = 0,
+  }) * 1000
+  local tasks = {}
+  for index, spec in ipairs(FIXTURE_TASKS) do
+    local progress = progress_list[index] or 0
+    tasks[#tasks + 1] = {
+      id = logic.new_id(logic.to_ordinal(day) * 10 + index, string.format("%04x", index)),
+      title = spec.title,
+      notes = "",
+      tag = spec.tag,
+      priority = "med",
+      estimate_min = spec.estimate_min,
+      due_ms = index == 1 and due or nil,
+      lead_min = 0,
+      progress = progress,
+      carried = 0,
+      recurrence = nil,
+      status = "today",
+      order = index,
+      created_ms = due - 8 * 3600000,
+      completed_ms = progress >= 100 and (due - 3600000) or nil,
+    }
+  end
+  return tasks
+end
+
+local function seed_report()
+  local today_ordinal = logic.to_ordinal(doc.day)
+  if not today_ordinal then return end
+  local days = {}
+  for index = 1, #REPORT_PATTERN do
+    local day = logic.from_ordinal(today_ordinal - #REPORT_PATTERN + index - 1)
+    days[#days + 1] = logic.snapshot(day, fixture_day_tasks(day, REPORT_PATTERN[index]), 0,
+      setting("default_estimate"))
+  end
+  store.save_history({ schema = 1, days = days })
+  refresh_history()
+
+  doc.tasks = {}
+  doc.carried_in = 2
+  add_task({
+    title = "Ship phase 3", estimate_min = 90, progress = 60, tag = "work",
+    priority = "high", carried = 1, due_ms = now() + 90 * 60000,
+  })
+  add_task({ title = "Review the report", estimate_min = 30, progress = 100, tag = "work", carried = 1 })
+  add_task({ title = "Water plants", estimate_min = 15, progress = 0, tag = "life" })
+
+  -- replay the seed through the real streak rule so the dashboard number is
+  -- consistent with the history it is showing
+  local streak = { current = 0, best = 0, last_counted_day = nil }
+  for _, snapshot in ipairs(days) do
+    streak = logic.advance_streak(streak, snapshot, setting("streak_threshold"))
+  end
+  doc.streak = streak
+  report = nil
+
+  persist()
+  publish(true)
+  noctalia.notify("medo", string.format("report fixture: %d closed days + %d live tasks (streak %d)",
+    #days, #doc.tasks, streak.current))
+end
+
 local function boot()
   local loaded, err = store.load()
   if loaded then
@@ -251,6 +425,7 @@ local function boot()
     persist()
   end
 
+  refresh_history()
   publish(true)
 end
 
@@ -290,6 +465,13 @@ local function apply_command(cmd)
     changed = delete_task(cmd.id)
   elseif kind == "edit" then
     changed = edit_task(cmd)
+  elseif kind == "report" then
+    report = build_report(cmd.period)
+    publish(true)
+    return
+  elseif kind == "export" then
+    handle_export(cmd.period, cmd.format)
+    return
   end
   commit(changed)
 end
@@ -310,14 +492,35 @@ function onIpc(event, payload)
     noctalia.notify("medo", summary())
   elseif event == "debug-seed-demo" then
     seed_demo()
+  elseif event == "debug-seed-report" then
+    seed_report()
   elseif event == "debug-rollover" then
     local target = logic.next_day(doc.day)
     local plan = rollover(target, "debug")
     noctalia.notify("medo", string.format("closed %s · carried %d · repeats %d",
       plan.snapshot.day, plan.carried, #plan.repeats))
+  elseif event == "debug-report" and type(payload) == "string" then
+    report = build_report(payload)
+    publish(true)
+    if report then
+      noctalia.notify("medo", string.format("%s %s · %d%% · %d/%d · %d insight(s)",
+        report.period, report.label, report.score, report.done, report.assigned,
+        #report.insights))
+    else
+      noctalia.notifyError("medo", "report: unknown period")
+    end
+  elseif event == "debug-export" and type(payload) == "string" then
+    local period, format = payload:match("^%s*(%a+)%s*(%a*)")
+    handle_export(period, format)
+  elseif event == "debug-reset-history" then
+    store.save_history({ schema = 1, days = {} })
+    refresh_history()
+    report = nil
+    publish(true)
+    noctalia.notify("medo", "history cleared")
   elseif event == "debug-dump" then
-    noctalia.notify("medo", string.format("%s\n%s\nrev %d · %d tasks · history %s",
-      tostring(store.data_path()), summary(), doc.revision or 0, #doc.tasks,
+    noctalia.notify("medo", string.format("%s\n%s\nrev %d · %d tasks · %d closed days\n%s",
+      tostring(store.data_path()), summary(), doc.revision or 0, #doc.tasks, #history_days,
       tostring(store.history_path())))
   elseif event == "debug-backdate" and type(payload) == "string" then
     -- deliberately lies about the day so a restart exercises catch-up rollover

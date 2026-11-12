@@ -68,6 +68,15 @@ label_key = "settings.trash_days.label"
 description_key = "settings.trash_days.description"
 default = 30
 
+# Where Report -> Export writes medo-<period>-<day>.md / .json. Empty uses the
+# user's documents folder; the service resolves and creates it on first export.
+[[setting]]
+key = "export_dir"
+type = "folder"
+label_key = "settings.export_dir.label"
+description_key = "settings.export_dir.description"
+default = ""
+
 # Headless core: owns tasks.json, the logical day, rollover, reminders and
 # reports. Every other entry talks to it through noctalia.state.
 [[service]]

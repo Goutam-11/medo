@@ -99,8 +99,6 @@ end
 
 -- One entry per day: a repeated close of the same day replaces the old row.
 function M.append_history(snapshot)
-  local dir, err = M.dir()
-  if not dir then return false, err end
   local history = M.load_history()
   local replaced = false
   for index, day in ipairs(history.days) do
@@ -111,6 +109,17 @@ function M.append_history(snapshot)
     end
   end
   if not replaced then history.days[#history.days + 1] = snapshot end
+  return M.save_history(history)
+end
+
+-- Whole-file write, used by the debug fixture that replays several days.
+function M.save_history(history)
+  local dir, err = M.dir()
+  if not dir then return false, err end
+  if type(history) ~= "table" or type(history.days) ~= "table" then
+    return false, "history must be { schema = 1, days = { ... } }"
+  end
+  history.schema = SCHEMA
   table.sort(history.days, function(a, b) return (a.day or "") < (b.day or "") end)
   return write_atomic(join(dir, HISTORY_FILE), history)
 end
@@ -118,6 +127,31 @@ end
 function M.history_path()
   local dir = M.dir()
   return dir and join(dir, HISTORY_FILE) or nil
+end
+
+-- Resolve the export folder setting. Empty means $XDG_DOCUMENTS_DIR, then
+-- ~/Documents; expandPath handles a leading ~.
+function M.export_dir(configured)
+  local raw = tostring(configured or "")
+  raw = raw:gsub("^%s+", ""):gsub("%s+$", "")
+  if raw == "" then
+    local documents = noctalia.getenv("XDG_DOCUMENTS_DIR")
+    raw = (type(documents) == "string" and documents ~= "") and documents or "~/Documents"
+  end
+  local expanded = noctalia.expandPath(raw)
+  if type(expanded) ~= "string" or expanded == "" then return raw end
+  return (expanded:gsub("/+$", ""))
+end
+
+-- Exports are plain text outside the plugin data dir; only store writes files.
+function M.write_text(path, contents)
+  if type(path) ~= "string" or path == "" then return false, "empty export path" end
+  local dir = path:match("^(.*)/[^/]*$")
+  if dir and dir ~= "" then
+    local ok, err = noctalia.mkdirAll(dir)
+    if not ok then return false, err end
+  end
+  return noctalia.writeFile(path, contents)
 end
 
 function M.data_path()

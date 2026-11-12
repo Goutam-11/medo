@@ -4,8 +4,9 @@ medo is a day-scoped task manager for **Noctalia v5** on niri: a Luau plugin tha
 persists tasks, closes the day at a configurable hour, carries leftovers into a
 Pending list, and reports weekly/monthly efficiency.
 
-**Current state: Phases 0–2 merged** (scaffold, store + rollover, Today/Pending panel).
-Phase 3 (Dashboard + Reports) is next. `main` is at `bfd10d4`.
+**Current state: Phases 0–3 merged** (scaffold, store + rollover, Today/Pending panel,
+Dashboard + Reports). Phase 4 (life: notifications, launcher capture, celebration, sounds) is
+next.
 
 ## Read first
 
@@ -39,7 +40,10 @@ noctalia plugins lint medo                         # manifest/code cross-check
 noctalia msg panel-open goutamsharma/medo:panel    # add | pending | edit:<id>
 noctalia msg plugin goutamsharma/medo:core all ping
 noctalia msg plugin goutamsharma/medo:core all debug-seed-demo
+noctalia msg plugin goutamsharma/medo:core all debug-seed-report
 noctalia msg plugin goutamsharma/medo:core all debug-rollover
+noctalia msg plugin goutamsharma/medo:core all debug-report weekly
+noctalia msg plugin goutamsharma/medo:core all debug-export weekly
 noctalia msg plugin goutamsharma/medo:core all debug-dump
 grep -iE 'medo|ERR|luau' ~/.cache/noctalia/noctalia.log | tail -20
 ```
@@ -52,9 +56,9 @@ Installed niri binds: `Mod+Shift+M` captures a task (panel opens on the add fiel
 ```
 medo/plugin.toml     manifest: id goutamsharma/medo, plugin_api 43, entries, settings
 medo/core.luau       [[service]] — owns the document, the logical day, rollover, commands
-medo/store.luau      the ONLY module that touches disk (tasks.json, history.json, backups)
-medo/logic.luau      pure rules: dates, score, snapshot, rollover plan, streaks, parsing
-medo/panel.luau      [[panel]] — Today/Pending UI; writes nothing, sends commands
+medo/store.luau      the ONLY module that touches disk (tasks.json, history.json, backups, exports)
+medo/logic.luau      pure rules: dates, score, snapshot, rollover, streaks, reports, insights
+medo/panel.luau      [[panel]] — Today/Pending/Dashboard/Reports UI; writes nothing, sends commands
 medo/bar.luau        [[widget]] — done/total from the shared view
 medo/translations/   settings labels (label_key must resolve here)
 tests/logic_test.luau  headless tests for logic.luau
