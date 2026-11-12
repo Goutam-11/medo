@@ -904,6 +904,167 @@ function M.mascot_state(score)
   return "sleepy"
 end
 
+-- ── notifications ───────────────────────────────────────────────────────────
+
+-- "HH:MM" → minutes since midnight; nil when malformed.
+function M.clock_minutes(text)
+  local hours, minutes = tostring(text or ""):match("^(%d%d?):(%d%d)$")
+  if not hours then return nil end
+  hours, minutes = tonumber(hours), tonumber(minutes)
+  if hours > 23 or minutes > 59 then return nil end
+  return hours * 60 + minutes
+end
+
+local function minutes_of_day(now_ms)
+  local seconds = math.floor((tonumber(now_ms) or 0) / 1000)
+  return (tonumber(os.date("%H", seconds)) or 0) * 60 + (tonumber(os.date("%M", seconds)) or 0)
+end
+
+-- A scheduled time has a 60-minute window after its wall clock, so a shell
+-- that was asleep at 08:00 still gets the morning digest at 08:40, but a
+-- restart at lunchtime does not replay it. Wraps across midnight.
+function M.scheduled_window(now_ms, target_text)
+  local target = M.clock_minutes(target_text)
+  if not target then return false end
+  return (minutes_of_day(now_ms) - target) % 1440 < 60
+end
+
+-- Quiet hours are inclusive at the start and exclusive at the end; a window
+-- that crosses midnight is handled in both directions.
+function M.in_quiet_hours(now_ms, start_text, end_text)
+  local start_min = M.clock_minutes(start_text)
+  local end_min = M.clock_minutes(end_text)
+  if not start_min or not end_min or start_min == end_min then return false end
+  local minutes = minutes_of_day(now_ms)
+  if start_min < end_min then
+    return minutes >= start_min and minutes < end_min
+  end
+  return minutes >= start_min or minutes < end_min
+end
+
+function M.morning_notice(today_count, carried_count)
+  local planned = tonumber(today_count) or 0
+  if planned == 0 then
+    return "Morning. Nothing planned yet. Three is a good start."
+  end
+  return string.format("Morning. %d planned, %d carried. Medo is ready.",
+    planned, tonumber(carried_count) or 0)
+end
+
+function M.atrisk_notice()
+  return "Half the day gone, nothing moved. Still fine."
+end
+
+function M.evening_notice(open_count)
+  return string.format("%d left. Retry, park or drop?", tonumber(open_count) or 0)
+end
+
+function M.due_notice(title, progress)
+  return string.format('"%s" is due now (%d%%).', tostring(title or "task"),
+    clamp_progress(progress))
+end
+
+function M.lead_notice(minutes, title)
+  return string.format("%d min to \"%s\".", math.max(1, tonumber(minutes) or 1),
+    tostring(title or "task"))
+end
+
+function M.weekly_notice(report)
+  if type(report) ~= "table" then return "Your week is ready." end
+  return string.format("Your week: %d done, %d carried, %d%%.",
+    report.done or 0, report.carryover or 0, report.score or 0)
+end
+
+function M.monthly_notice(report)
+  if type(report) ~= "table" then return "Your month is ready." end
+  return string.format("%s in review — %d%% efficiency.",
+    report.month_label or "The month", report.score or 0)
+end
+
+-- The reminder decision for one tick. It is pure: `now_ms`, the logical day,
+-- the tasks, the settings and the persisted dedupe map go in; notifications
+-- that are due and not yet fired come out. Weekly/monthly entries carry no
+-- body because the caller builds the report they need.
+function M.notifications(now_ms, day, tasks, context, settings, notified)
+  settings = settings or {}
+  context = context or {}
+  notified = notified or {}
+  local entries = {}
+  local quiet = M.in_quiet_hours(now_ms, settings.quiet_start or "22:00", settings.quiet_end or "07:00")
+  local notify = settings.notify or {}
+  local default_lead = tonumber(settings.lead_min) or 15
+
+  local function fresh(key) return not notified[key] end
+  local function add(key, kind, title, body)
+    if fresh(key) then
+      entries[#entries + 1] = { key = key, kind = kind, title = title, body = body }
+    end
+  end
+
+  -- Due alerts are the one thing quiet hours never suppress.
+  if notify.due ~= false then
+    for _, task in ipairs(tasks or {}) do
+      local due = tonumber(task.due_ms)
+      local progress = clamp_progress(task.progress)
+      if due and due > 0 and task.status ~= "pending" and progress < 100
+        and now_ms >= due and now_ms - due <= 60 * 60000 then
+        add(string.format("due:%s:%d", tostring(task.id), due), "due", "medo",
+          M.due_notice(task.title, progress))
+      end
+    end
+  end
+
+  if notify.lead ~= false and not quiet then
+    for _, task in ipairs(tasks or {}) do
+      local due = tonumber(task.due_ms)
+      local progress = clamp_progress(task.progress)
+      local lead = tonumber(task.lead_min) or 0
+      if lead <= 0 then lead = default_lead end
+      if due and due > now_ms and task.status ~= "pending" and progress < 100
+        and lead > 0 and due - now_ms <= lead * 60000 then
+        add(string.format("lead:%s:%d", tostring(task.id), due), "lead", "medo",
+          M.lead_notice(math.floor((due - now_ms) / 60000 + 0.5), task.title))
+      end
+    end
+  end
+
+  if not quiet then
+    local today_count = tonumber(context.today_count) or 0
+    local open_count = tonumber(context.open_count) or 0
+    local carried_count = tonumber(context.carried_count) or 0
+    local score = tonumber(context.score) or 0
+
+    if notify.morning ~= false and M.scheduled_window(now_ms, settings.morning_time or "08:00") then
+      add("morning:" .. tostring(day), "morning", "medo",
+        M.morning_notice(today_count, carried_count))
+    end
+
+    if notify.atrisk ~= false and score < 30 and open_count > 0
+      and M.scheduled_window(now_ms, settings.atrisk_time or "15:00") then
+      add("atrisk:" .. tostring(day), "atrisk", "medo", M.atrisk_notice())
+    end
+
+    if notify.evening ~= false and open_count > 0
+      and M.scheduled_window(now_ms, settings.evening_time or "21:00") then
+      add("evening:" .. tostring(day), "evening", "medo", M.evening_notice(open_count))
+    end
+
+    local weekday = M.weekday_iso(day)
+    if notify.weekly ~= false and weekday and weekday == tonumber(settings.weekly_day)
+      and M.scheduled_window(now_ms, settings.weekly_time or "20:00") then
+      add("weekly:" .. tostring(day), "weekly", "medo", nil)
+    end
+
+    local _, _, day_of_month = M.day_parts(day)
+    if notify.monthly ~= false and day_of_month == 1
+      and M.scheduled_window(now_ms, settings.monthly_time or "20:00") then
+      add("monthly:" .. tostring(day), "monthly", "medo", nil)
+    end
+  end
+
+  return entries
+end
+
 -- ── ids and small helpers ───────────────────────────────────────────────────
 
 local BASE36 = "0123456789abcdefghijklmnopqrstuvwxyz"
