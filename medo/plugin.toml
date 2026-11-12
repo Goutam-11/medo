@@ -1,19 +1,19 @@
 # medo — a cute, day-scoped task manager for Noctalia v5.
 #
-# Phase 0 scaffold: the service publishes an empty view, the bar widget renders
-# done/total, and the panel opens. The real store, tabs, slider and reports
-# arrive in the next phases (see docs/PLAN.md).
+# Four entries: a headless service (the only writer), a bar widget (done/total),
+# a five-tab panel and a launcher provider. Data lives in pluginDataDir(); the
+# bundle ships its own font, mascot PNGs and sound cues under assets/.
 #
 # plugin_api 43 is the ceiling on Noctalia 5.4.1 (44+ is unreleased), and is what
 # `height = "content"` panels require.
 id = "goutamsharma/medo"
 name = "medo"
-version = "0.1.0"
+version = "0.2.0"
 plugin_api = 43
 author = "goutamsharma"
 icon = "checklist"
-description = "A cute day-scoped task manager: progress sliders, a 04:00 rollover that carries leftovers, and weekly efficiency reports."
-tags = ["bar", "panel", "service", "productivity"]
+description = "A cute day-scoped task manager: progress sliders, a 04:00 rollover with a 21:00 triage, reminders, a launcher and weekly efficiency reports."
+tags = ["bar", "panel", "service", "launcher", "productivity", "tasks"]
 
 # Plugin-level settings, shared by every entry (Settings -> Plugins -> medo).
 [[setting]]

@@ -764,9 +764,9 @@ function M.insights(report, opts)
     local excess = math.max(1, round(per_day - cap))
     rules[#rules + 1] = {
       id = "carryover",
-      text = string.format(
-        "You carried %d of %d tasks. Your plan was ~%d task%s too ambitious — cap it at %d.",
-        report.carryover, report.assigned, excess, excess == 1 and "" or "s", cap),
+      key = "insight.carryover",
+      plural = excess,
+      subst = { carried = report.carryover, assigned = report.assigned, cap = cap },
     }
   end
 
@@ -774,9 +774,13 @@ function M.insights(report, opts)
     local broken = report.streak_break
     rules[#rules + 1] = {
       id = "streak",
-      text = string.format("%s broke a %d-day streak at %d task%s left.",
-        M.weekday_name(broken.day) or broken.day, broken.run, broken.left,
-        broken.left == 1 and "" or "s"),
+      key = "insight.streak",
+      plural = broken.left,
+      subst = {
+        weekday = M.weekday_name(broken.day) or broken.day,
+        run = broken.run,
+        left = broken.left,
+      },
     }
   end
 
@@ -792,7 +796,8 @@ function M.insights(report, opts)
     if lift > 20 then
       rules[#rules + 1] = {
         id = "due",
-        text = string.format("Tasks with a due time finish %d%% more often. Give the big ones a time.", lift),
+        key = "insight.due",
+        subst = { lift = lift },
       }
     end
   end
@@ -800,9 +805,8 @@ function M.insights(report, opts)
   if (report.avg_progress or 0) > 55 then
     rules[#rules + 1] = {
       id = "avg_progress",
-      text = string.format(
-        "You stop at ~%d%% a lot — those tasks are too big. Split anything over 45 min.",
-        report.avg_progress),
+      key = "insight.avg_progress",
+      subst = { progress = report.avg_progress },
     }
   end
 
@@ -810,17 +814,15 @@ function M.insights(report, opts)
   if power and (report.active_days or 0) >= 3 and power.score >= (report.day_score_avg or 0) + 5 then
     rules[#rules + 1] = {
       id = "weekday",
-      text = string.format("%ss are your power day. Schedule the scary task there.",
-        WEEKDAYS[power.weekday]),
+      key = "insight.weekday",
+      subst = { weekday = WEEKDAYS[power.weekday] },
     }
   end
 
   if #rules == 0 then
     return { {
       id = "steady",
-      text = report.period == "monthly"
-        and "A steady month. Nothing to improve — suspiciously good."
-        or "A steady week. Nothing to improve — suspiciously good.",
+      key = report.period == "monthly" and "insight.steady.monthly" or "insight.steady.week",
     } }
   end
 
@@ -920,7 +922,7 @@ end
 
 -- Markdown rendering for an export. `generated` is passed in so the output is
 -- deterministic under test; core supplies the wall-clock label.
-function M.report_markdown(report, generated)
+function M.report_markdown(report, generated, tr)
   if type(report) ~= "table" then return "" end
   local lines = {}
   local function line(text) lines[#lines + 1] = text end
@@ -984,7 +986,8 @@ function M.report_markdown(report, generated)
   line("## Insights")
   line("")
   for _, insight in ipairs(report.insights or {}) do
-    line("- " .. tostring(insight.text))
+    local text = tr and tr(insight.key, insight.subst, insight.plural) or insight.key
+    line("- " .. tostring(text))
   end
   line("")
   return table.concat(lines, "\n")
@@ -1070,8 +1073,9 @@ function M.celebration(done, total)
   local planned = tonumber(total) or 0
   return {
     eligible = planned > 0 and finished >= planned,
-    headline = "Nothing left on the list. Go touch grass.",
-    line = string.format("%d/%d. Medo is doing a little dance.", finished, planned),
+    headline_key = "celebration.headline",
+    line_key = "celebration.line",
+    subst = { done = finished, total = planned },
   }
 end
 
@@ -1086,15 +1090,16 @@ function M.triage_summary(tasks)
       pending = pending + 1
     end
   end
-  local copy
+  local key, subst
   if open > 0 then
-    copy = string.format("%d left today. Retry, park or drop?", open)
+    key = "triage.copy.open"
+    subst = { count = open }
   elseif pending > 0 then
-    copy = "Nothing left today. Pending can wait for tomorrow."
+    key = "triage.copy.pending"
   else
-    copy = "Nothing left today. Medo is impressed."
+    key = "triage.copy.done"
   end
-  return { open = open, pending = pending, copy = copy }
+  return { open = open, pending = pending, copy_key = key, subst = subst }
 end
 
 -- ── notifications ───────────────────────────────────────────────────────────
@@ -1135,45 +1140,6 @@ function M.in_quiet_hours(now_ms, start_text, end_text)
   return minutes >= start_min or minutes < end_min
 end
 
-function M.morning_notice(today_count, carried_count)
-  local planned = tonumber(today_count) or 0
-  if planned == 0 then
-    return "Morning. Nothing planned yet. Three is a good start."
-  end
-  return string.format("Morning. %d planned, %d carried. Medo is ready.",
-    planned, tonumber(carried_count) or 0)
-end
-
-function M.atrisk_notice()
-  return "Half the day gone, nothing moved. Still fine."
-end
-
-function M.evening_notice(open_count)
-  return string.format("%d left. Retry, park or drop?", tonumber(open_count) or 0)
-end
-
-function M.due_notice(title, progress)
-  return string.format('"%s" is due now (%d%%).', tostring(title or "task"),
-    clamp_progress(progress))
-end
-
-function M.lead_notice(minutes, title)
-  return string.format("%d min to \"%s\".", math.max(1, tonumber(minutes) or 1),
-    tostring(title or "task"))
-end
-
-function M.weekly_notice(report)
-  if type(report) ~= "table" then return "Your week is ready." end
-  return string.format("Your week: %d done, %d carried, %d%%.",
-    report.done or 0, report.carryover or 0, report.score or 0)
-end
-
-function M.monthly_notice(report)
-  if type(report) ~= "table" then return "Your month is ready." end
-  return string.format("%s in review — %d%% efficiency.",
-    report.month_label or "The month", report.score or 0)
-end
-
 -- The reminder decision for one tick. It is pure: `now_ms`, the logical day,
 -- the tasks, the settings and the persisted dedupe map go in; notifications
 -- that are due and not yet fired come out. Weekly/monthly entries carry no
@@ -1188,9 +1154,11 @@ function M.notifications(now_ms, day, tasks, context, settings, notified)
   local default_lead = tonumber(settings.lead_min) or 15
 
   local function fresh(key) return not notified[key] end
-  local function add(key, kind, title, body)
+  -- Entries carry a translation key and its numbers; the service renders them
+  -- with noctalia.tr, so this module never needs the host.
+  local function add(key, kind, body_key, subst)
     if fresh(key) then
-      entries[#entries + 1] = { key = key, kind = kind, title = title, body = body }
+      entries[#entries + 1] = { key = key, kind = kind, body_key = body_key, subst = subst }
     end
   end
 
@@ -1201,8 +1169,8 @@ function M.notifications(now_ms, day, tasks, context, settings, notified)
       local progress = clamp_progress(task.progress)
       if due and due > 0 and task.status ~= "pending" and progress < 100
         and now_ms >= due and now_ms - due <= 60 * 60000 then
-        add(string.format("due:%s:%d", tostring(task.id), due), "due", "medo",
-          M.due_notice(task.title, progress))
+        add(string.format("due:%s:%d", tostring(task.id), due), "due", "notify.due",
+          { title = task.title, progress = progress })
       end
     end
   end
@@ -1215,8 +1183,8 @@ function M.notifications(now_ms, day, tasks, context, settings, notified)
       if lead <= 0 then lead = default_lead end
       if due and due > now_ms and task.status ~= "pending" and progress < 100
         and lead > 0 and due - now_ms <= lead * 60000 then
-        add(string.format("lead:%s:%d", tostring(task.id), due), "lead", "medo",
-          M.lead_notice(math.floor((due - now_ms) / 60000 + 0.5), task.title))
+        add(string.format("lead:%s:%d", tostring(task.id), due), "lead", "notify.lead",
+          { minutes = math.floor((due - now_ms) / 60000 + 0.5), title = task.title })
       end
     end
   end
@@ -1228,30 +1196,34 @@ function M.notifications(now_ms, day, tasks, context, settings, notified)
     local score = tonumber(context.score) or 0
 
     if notify.morning ~= false and M.scheduled_window(now_ms, settings.morning_time or "08:00") then
-      add("morning:" .. tostring(day), "morning", "medo",
-        M.morning_notice(today_count, carried_count))
+      if today_count == 0 then
+        add("morning:" .. tostring(day), "morning", "notify.morning.empty", nil)
+      else
+        add("morning:" .. tostring(day), "morning", "notify.morning",
+          { planned = today_count, carried = carried_count })
+      end
     end
 
     if notify.atrisk ~= false and score < 30 and open_count > 0
       and M.scheduled_window(now_ms, settings.atrisk_time or "15:00") then
-      add("atrisk:" .. tostring(day), "atrisk", "medo", M.atrisk_notice())
+      add("atrisk:" .. tostring(day), "atrisk", "notify.atrisk", nil)
     end
 
     if notify.evening ~= false and open_count > 0
       and M.scheduled_window(now_ms, settings.evening_time or "21:00") then
-      add("evening:" .. tostring(day), "evening", "medo", M.evening_notice(open_count))
+      add("evening:" .. tostring(day), "evening", "notify.evening", { count = open_count })
     end
 
     local weekday = M.weekday_iso(day)
     if notify.weekly ~= false and weekday and weekday == tonumber(settings.weekly_day)
       and M.scheduled_window(now_ms, settings.weekly_time or "20:00") then
-      add("weekly:" .. tostring(day), "weekly", "medo", nil)
+      add("weekly:" .. tostring(day), "weekly", "notify.weekly", nil)
     end
 
     local _, _, day_of_month = M.day_parts(day)
     if notify.monthly ~= false and day_of_month == 1
       and M.scheduled_window(now_ms, settings.monthly_time or "20:00") then
-      add("monthly:" .. tostring(day), "monthly", "medo", nil)
+      add("monthly:" .. tostring(day), "monthly", "notify.monthly", nil)
     end
   end
 

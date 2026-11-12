@@ -245,6 +245,30 @@ result; there is no pointer injection on this machine, so a click on the row is 
 Activation toasts `Sold. "buy milk" is on today's list.` and calls `launcher.setQuery("")`, which
 resets the input to the provider root (`/medo`) instead of closing the launcher.
 
+## Text, translations and the copy contract (Phase 5b)
+
+Every user-visible string lives in `medo/translations/en.json` (flat dotted keys) and is resolved
+with `noctalia.tr(key, subst)` — `{name}` placeholders — or `noctalia.trp(key, count, subst)` for a
+plural pair (`<key>.one` / `<key>.other`, with `{count}` also available).
+
+The rule that keeps `logic.luau` host-free: **the pure layer never builds a sentence.** It returns
+a copy *key* plus its numbers, and the entry translates:
+
+| pure output | rendered by |
+| --- | --- |
+| `notifications()` → `{ body_key = "notify.morning", subst = { planned, carried } }` | `core.luau` |
+| `insights()` → `{ key = "insight.carryover", plural = 1, subst = { … } }` | panel (`trp`) and `report_markdown` (via the translator core passes in) |
+| `celebration()` → `{ headline_key, line_key, subst = { done, total } }` | panel |
+| `triage_summary()` → `{ copy_key, subst = { count } }` | panel |
+
+`tools/check_manifest.py` (`make manifest`) now scans `medo/**/*.luau` for anything that looks like
+a translation key and fails when it is missing from `en.json`; `trp` keys must have both plural
+forms. That is the guardrail — a typo'd key is a red CI, not a screen full of `panel.foo.bar`.
+Known exceptions, deliberately left in English: exported Markdown/JSON documents, debug IPC toasts
+and log lines.
+
+Adding a language is a new `translations/<lang>.json`; no code change.
+
 ## Trash (Phase 5a)
 
 `view.trash_tasks` is a list of `{ task, deleted_ms, days_left }`, newest deletion first. The panel
@@ -312,4 +336,4 @@ and OGGs are committed so a clone ships complete — only the SVGs are hand-edit
 | `medo/panel.luau` | panel | Today / Pending / Dashboard / Reports (Trash in Phase 5) |
 | `medo/quick.luau` | launcher | `medo …` capture: previews the parsed fields and sends `add` |
 | `medo/assets/` | — | bundled font, mascot PNGs and sound cues (see `tools/gen-assets.sh`) |
-| `medo/translations/en.json` | — | settings labels (`label_key` must resolve here) |
+| `medo/translations/en.json` | — | every user-visible string: settings, panel, bar, launcher, notifications, insights |

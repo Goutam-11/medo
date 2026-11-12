@@ -48,6 +48,23 @@ SETTING_TYPES = {
 }
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*/[a-z0-9][a-z0-9_-]*$")
+# Any quoted string in a .luau file that looks like a translation key must exist
+# in en.json, so a missing translation fails CI instead of rendering as the key.
+TRANSLATION_PREFIXES = (
+    "plugin.",
+    "settings.",
+    "panel.",
+    "bar.",
+    "notify.",
+    "launcher.",
+    "celebration.",
+    "triage.",
+    "insight.",
+    "error.",
+    "toast.",
+)
+KEY_LITERAL_RE = re.compile(r'"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"')
+TRP_RE = re.compile(r'noctalia\.trp\(\s*"([^"]+)"')
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 errors: list[str] = []
@@ -233,6 +250,37 @@ def check_entries(manifest: dict, translations: dict[str, str]) -> None:
         warn("no widget, panel or service entry; the plugin would be invisible")
 
 
+def check_translation_keys(translations: dict[str, str]) -> None:
+    """Every translation key referenced by medo/*.luau resolves in en.json.
+
+    `trp` keys need the `.one` / `.other` pair (the shell prefers those, then the
+    bare key), so a plural key counts as present when either form exists.
+    """
+    used: set[str] = set()
+    trp_keys: set[str] = set()
+    for path in sorted(PLUGIN_DIR.rglob("*.luau")):
+        text = path.read_text(encoding="utf-8")
+        used.update(
+            literal for literal in KEY_LITERAL_RE.findall(text)
+            if literal.startswith(TRANSLATION_PREFIXES)
+        )
+        trp_keys.update(TRP_RE.findall(text))
+
+    for key in sorted(used):
+        if key in translations:
+            continue
+        if f"{key}.one" in translations and f"{key}.other" in translations:
+            continue
+        error(f"translation key '{key}' is used in medo/*.luau but missing from translations/en.json")
+
+    for key in sorted(trp_keys):
+        if f"{key}.one" not in translations or f"{key}.other" not in translations:
+            error(
+                f"trp key '{key}' needs '{key}.one' and '{key}.other' "
+                "in translations/en.json"
+            )
+
+
 def main() -> int:
     if not MANIFEST.is_file():
         print(f"error: {MANIFEST.relative_to(ROOT)} not found", file=sys.stderr)
@@ -244,6 +292,7 @@ def main() -> int:
         check_top_level(manifest)
         check_settings("plugin", manifest.get("setting", []), translations)
         check_entries(manifest, translations)
+        check_translation_keys(translations)
 
     plugin_id = manifest.get("id", "<unknown>")
     print(f"{plugin_id}: {len(errors)} error(s), {len(warnings)} warning(s)")

@@ -22,12 +22,12 @@ end
 
 local function tooltip(snapshot)
   local rows = {
-    { "medo", count_text(snapshot) .. (snapshot.ready and "" or " · waking up") },
+    { noctalia.tr("plugin.name"), count_text(snapshot) .. (snapshot.ready and "" or (" · " .. noctalia.tr("bar.waking"))) },
   }
   if (tonumber(snapshot.carried) or 0) > 0 then
-    rows[#rows + 1] = { "Carried", tostring(snapshot.carried) }
+    rows[#rows + 1] = { noctalia.tr("bar.carried"), tostring(snapshot.carried) }
   end
-  rows[#rows + 1] = { "Click", "open today" }
+  rows[#rows + 1] = { noctalia.tr("bar.click"), noctalia.tr("bar.open_today") }
   return rows
 end
 

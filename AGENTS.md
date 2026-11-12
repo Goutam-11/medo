@@ -4,8 +4,10 @@ medo is a day-scoped task manager for **Noctalia v5** on niri: a Luau plugin tha
 persists tasks, closes the day at a configurable hour, carries leftovers into a
 Pending list, and reports weekly/monthly efficiency.
 
-**Current state: Phases 0–3 merged, Phase 4a merged** (reminders and notifications). Phase 4b/4c
-(launcher capture, celebration/sounds/triage) and Phase 5 (Trash, i18n, packaging) are next.
+**Current state: Phases 0–4a are on `main`; v1 (`0.2.0`) is feature complete in the open PRs** —
+launcher capture (4b), celebration/mascot/sounds/triage (4c), Trash (5a) and the i18n/packaging
+pass (5b). No Phase 6 is planned: what remains is a licence decision, a published release, and a
+second language if anyone wants one.
 
 ## Read first
 
@@ -36,7 +38,9 @@ Shell/dev loop:
 noctalia msg plugins list | grep medo              # state + version
 noctalia msg config-reload                         # after plugin.toml changes
 noctalia plugins lint medo                         # manifest/code cross-check
-noctalia msg panel-open goutamsharma/medo:panel    # add | pending | edit:<id>
+noctalia msg panel-open goutamsharma/medo:panel    # add | pending | edit:<id> | dashboard | reports
+noctalia msg panel-open goutamsharma/medo:panel triage   # the 21:00 decision card
+noctalia msg panel-open launcher "/medo buy milk @17:00" # launcher capture (no IPC of its own)
 noctalia msg plugin goutamsharma/medo:core all ping
 noctalia msg plugin goutamsharma/medo:core all debug-seed-demo
 noctalia msg plugin goutamsharma/medo:core all debug-seed-report
@@ -47,24 +51,31 @@ noctalia msg plugin goutamsharma/medo:core all debug-tick 08:00
 noctalia msg plugin goutamsharma/medo:core all debug-notify weekly
 noctalia msg plugin goutamsharma/medo:core all debug-reset-state
 noctalia msg plugin goutamsharma/medo:core all debug-dump
+noctalia msg plugin goutamsharma/medo:core all debug-complete-all   # celebration card
+noctalia msg plugin goutamsharma/medo:core all debug-seed-trash      # 3 trash rows, 0/3/27 days
+noctalia msg plugin goutamsharma/medo:core all empty-trash
 grep -iE 'medo|ERR|luau' ~/.cache/noctalia/noctalia.log | tail -20
 ```
 
 Installed niri binds: `Mod+Shift+M` captures a task (panel opens on the add field),
-`Mod+Alt+M` opens the panel.
+`Mod+Alt+M` opens the panel. Global shortcuts are the compositor's job — the panel has none by
+design (decision 16).
 
 ## Layout and ownership
 
 ```
 medo/plugin.toml     manifest: id goutamsharma/medo, plugin_api 43, entries, settings
-medo/core.luau       [[service]] — owns the document, the logical day, rollover, reminders, commands
+medo/core.luau       [[service]] — owns the document, the logical day, rollover, reminders, sounds, commands
 medo/store.luau      the ONLY module that touches disk (tasks, history, state, backups, exports)
-medo/logic.luau      pure rules: dates, score, snapshot, rollover, streaks, reports, insights, notifications
-medo/panel.luau      [[panel]] — Today/Pending/Dashboard/Reports UI; writes nothing, sends commands
+medo/logic.luau      pure rules: dates, score, rollover, streaks, reports, insights, capture, notification keys
+medo/panel.luau      [[panel]] — Today/Pending/Stats/Reports/Trash + triage/celebration; writes nothing
 medo/bar.luau        [[widget]] — done/total from the shared view
-medo/translations/   settings labels (label_key must resolve here)
+medo/quick.luau      [[launcher_provider]] — `medo …` capture; sends the same `add` command
+medo/assets/         bundled font (+OFL), mascot SVG/PNG, sound cues — rebuilt by tools/gen-assets.sh
+medo/translations/   en.json: every user-visible string (tr/trp keys; checked by make manifest)
 tests/logic_test.luau  headless tests for logic.luau
-tools/check_manifest.py  stdlib validator used by `make check`
+tools/check_manifest.py  stdlib validator used by `make check` (manifest + translation keys)
+tools/gen-assets.sh      font download, SVG→PNG rasterisation, ogg synthesis
 docs/                PLAN.md (contract), DEV.md (workflow), screenshots/
 ```
 
@@ -77,6 +88,11 @@ Rules that keep it sane:
 - **`logic.luau` must stay host-free** (no `noctalia.*`, no file access) so tests
   can load it with plain Luau. Anything clock- or disk-shaped belongs in
   `core.luau`/`store.luau`.
+- **Copy is data**: no user-visible English in `.luau` files. Strings live in
+  `translations/en.json`; `logic.luau` returns copy *keys* plus their numbers
+  (`body_key`/`key`/`copy_key`/`headline_key`, plus a `plural` count for `trp`)
+  and the entry translates. `make manifest` fails when a key is missing.
+  Exceptions: exported Markdown/JSON and debug/log text.
 - `store.luau` writes atomically: encode → `.tmp` → rotate current to `.bak` →
   rename. Don't bypass it, and don't put data in `pluginDir()`.
 
@@ -89,6 +105,12 @@ Rules that keep it sane:
   `parse error: File could not be opened for reading`.
 - Declarative UI has **no animations**, notifications carry **no action buttons**,
   and prop lists are exhaustive per API level — unknown props are skipped silently.
+- **Sound names are scoped to one entry runtime**, so only the service can load and
+  play `assets/sounds/*.ogg`; `noctalia.loadFont` returns the family name
+  (`Baloo 2` for the bundled SemiBold), not the file name.
+- **A panel tick is not guaranteed**: `setWantsSecondTicks` alone did not drive
+  `update()` on 5.4.1. A timer that must fire (the 8 s celebration) is cleared by
+  the service and republished, not by a panel timer.
 - Colour roles at 43: `surface_container`, `surface_container_high`,
   `primary_container`, `outline_variant`, … `surface_variant` is retired.
 - **In-panel keyboard shortcuts do not exist by design.** Panels take keyboard
