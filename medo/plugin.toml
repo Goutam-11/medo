@@ -96,9 +96,3 @@ max_height = 760
 placement = "attached"
 position = "auto"
 open_near_click = true
-# printable keys arrive here only while no ui.input has focus (return/escape stay
-# with the host); the panel footer documents them.
-capture_keys = ["n", "j", "k", "x", "p", "d", "y", "1", "2"]
-# keyboard_focus stays at the default: the panel takes focus on demand, and the
-# add field grabs it on open (capture-first). Panel-level shortcuts are a bonus
-# for when the panel itself holds the keyboard; they are not the main path.

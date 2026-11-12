@@ -351,7 +351,7 @@ local function submit_add()
   local today_count = #(view.today_tasks or {})
   if view.cap.enabled and today_count >= (tonumber(view.cap.value) or 3) then
     cap_pending = fields
-    -- drop focus out of the input so the y shortcut reaches onKey
+    -- rebuild the field unfocused so the prompt is the active surface
     add_focus = false
     add_epoch = add_epoch + 1
     render()
@@ -418,7 +418,7 @@ local function add_form()
   if cap_pending then
     children[#children + 1] = ui.column({ gap = 6, padding = 8, radius = 8, fill = "primary_container" }, {
       ui.label({
-        text = string.format("Today already has %d. Add one more anyway? (y)", view.cap.value or 3),
+        text = string.format("Today already has %d. Add one more anyway?", view.cap.value or 3),
         fontSize = 11,
         color = "on_primary_container",
       }),
@@ -537,7 +537,7 @@ local function footer()
       color = "on_surface_variant",
     }),
     ui.label({
-      text = "type to add · Enter saves · click a row to edit · n = new",
+      text = "type to add · Enter saves · click a row to edit",
       fontSize = 10,
       color = "on_surface_variant",
     }),
@@ -559,49 +559,6 @@ function render()
 end
 
 -- ── keyboard + lifecycle ────────────────────────────────────────────────────
-
-function onKey(chord, pressed)
-  if pressed ~= "true" then return end
-  local rows = current_rows()
-  if chord == "n" then
-    add_focus = true
-    add_epoch = add_epoch + 1
-    render()
-  elseif chord == "j" or chord == "k" then
-    if #rows == 0 then return end
-    selected = math.max(1, math.min(#rows, selected + (chord == "j" and 1 or -1)))
-    render()
-  elseif chord == "x" then
-    local task = rows[selected]
-    if task then
-      send("progress", { id = task.id, progress = progress_of(task) >= 100 and 0 or 100 })
-    end
-  elseif chord == "d" then
-    local task = rows[selected]
-    if task then send("delete", { id = task.id }) end
-  elseif chord == "p" then
-    local task = rows[selected]
-    if task then send(tab == "today" and "park" or "promote", { id = task.id }) end
-  elseif chord == "y" then
-    -- confirm the soft-cap prompt without reaching for the pointer
-    if cap_pending then
-      send("add", cap_pending)
-      cap_pending = nil
-      add = { title = "", estimate = 30, time = "", tag = "" }
-      add_epoch = add_epoch + 1
-      add_focus = true
-      render()
-    end
-  elseif chord == "1" then
-    tab = "today"
-    selected = 1
-    render()
-  elseif chord == "2" then
-    tab = "pending"
-    selected = 1
-    render()
-  end
-end
 
 function onOpen(context)
   read_view()
@@ -642,11 +599,6 @@ function onOpen(context)
     end
   end
 
-  -- Capture-first: the add field takes the keyboard on open, which the host
-  -- honours every time. Panel-level shortcuts (capture_keys) only arrive while
-  -- no input has focus, so they are a bonus, not the primary path.
-  add_focus = true
-  add_epoch = add_epoch + 1
   render()
 end
 

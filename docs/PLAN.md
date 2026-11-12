@@ -489,8 +489,9 @@ Pending with a `carried` counter, repeats are recreated, history and 14 backups 
 Phase 2 complete (2026-11-12) — Today and Pending render with inline progress sliders, capture
 with estimate/time/tag, inline editing (title, estimate, due, tag, priority, notes), park/promote,
 delete to Trash and the soft-cap prompt. The panel talks to the service only through
-`noctalia.state["cmd"]`. Keyboard is capture-first (the add field takes focus on open); panel
-shortcuts exist but depend on the panel holding focus, which Noctalia treats as on-demand.
+`noctalia.state["cmd"]`. Keyboard is capture-first (the add field takes focus on open); in-panel shortcuts were
+removed because panels only take keyboard focus on demand and inputs swallow printable keys —
+global shortcuts belong in niri instead.
 Evidence: `docs/screenshots/phase2-{today,pending,editor}.png`.
 
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
