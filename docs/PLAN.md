@@ -184,7 +184,7 @@ back after ~8 s or on any click.
       "lead_min": 15,
       "progress": 40,
       "carried": 1,
-      "repeat": null,
+      "recurrence": null,
       "status": "today",
       "order": 0,
       "created_ms": 1762900000000,
@@ -198,7 +198,7 @@ back after ~8 s or on any click.
 ```
 
 - `status`: `today` | `pending` | `done` (done until rollover archives it)
-- `repeat`: `null` | `{ "kind": "daily" }` | `{ "kind": "weekdays", "days": [1,3,5] }`
+- `recurrence`: `null` | `{ "kind": "daily" }` | `{ "kind": "weekdays", "days": [1,3,5] }`
   (1 = Monday, matching `os.date("*t")`)
 - `priority`: `low` | `med` | `high` → weight multiplier 1 / 1.5 / 2 **only when no estimate**
 - `due_ms` is wall-clock epoch ms, same base as `noctalia.nowMs()`; a due date on another day is
@@ -480,6 +480,11 @@ then `.luau` edits hot-reload. Writing outside the workspace needs one approval.
 
 **Progress:** Phase 0 complete (2026-11-12) — the plugin loads on Noctalia 5.4.1, the bar shows
 `0/0`, and the panel opens. Evidence: `docs/screenshots/phase0-*.png`.
+
+Phase 1 complete (2026-11-12) — the store persists across plugin restarts, the logical day rolls
+over at the configured hour (including catch-up after downtime), unfinished tasks carry into
+Pending with a `carried` counter, repeats are recreated, history and 14 backups are written, and
+52 unit tests cover the pure logic. Evidence: `docs/screenshots/phase1-panel.png`.
 
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
 `docs/DEV.md`.
