@@ -158,9 +158,12 @@ empty when you finish testing.
   enforced, no force-push/deletion). Never push to `main`.
 - Branch `type/scope`: `feat/`, `fix/`, `chore/`, `docs/`. Squash-merge, delete.
 - Conventional Commits; subject ≤ 72 chars, imperative; body explains *why*.
-- PR body: `# Why`, `# What changed`, `# Validation and proof` (check → command →
-  actual result), `# Risk and rollback`. Screenshots for UI work. State plainly
-  what was **not** verified.
+- PR body follows [`.github/pull_request_template.md`](.github/pull_request_template.md):
+  `# Why`, `# What changed`, `# Visuals` (one mermaid diagram), `# Validation and proof`
+  (check → command → actual result), `# UI proof` (screenshots **embedded**, not linked
+  as paths), `# Risk and rollback`, checklist. State plainly what was **not** verified.
+- Stacked PRs: `Closes #N` only auto-closes on the **default branch**, so retarget each
+  PR to `main` before merging it. A PR merged into a feature branch lands nowhere.
 - Update `docs/PLAN.md` progress, `docs/DEV.md` and `README.md` when behaviour or
   workflow changes.
 - CI is `.github/workflows/ci.yml` (job `check`, pinned Luau 0.746). It runs the
