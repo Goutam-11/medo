@@ -346,8 +346,12 @@ medo buy milk @17:00 #errand !high
 ```
 
 - Parsed tokens are shown as a subtitle preview before Enter; unparsed text stays in the title.
-- `@tomorrow`, `@mon`, `@18:30` accepted for the date, `!low/!med/!high`, `#tag` free-form
-  (autocompletes from existing tags in the subtitle).
+- `@tomorrow`, `@mon`, `@18:30` accepted for the date, `!low/!med/!high`, `#tag` free-form.
+  Resolution rules (Phase 4b): a bare clock is the next occurrence of that wall clock, a day
+  token is 09:00 on the next matching day (a weekday means strictly after today, so `@mon` on a
+  Monday is the coming Monday), a day and a clock combine in either order, and the last token of
+  a kind wins. Tags are **not** completed from the existing ones — the subtitle only previews
+  what was parsed, and words that are not tokens stay in the title.
 - Result action: add to Today, toast `Sold. "buy milk" is on today's list.`; keeps the launcher
   open for the next task (`launcher.setQuery("")`).
 
@@ -512,6 +516,13 @@ morning, 15:00 at-risk, 21:00 evening, due, lead, weekly and monthly toasts. The
 the list and persists each key so a restart never repeats a toast. `debug-tick`, `debug-notify`,
 `debug-clock-clear` and `debug-reset-state` make the whole thing testable without waiting for the
 clock. Pure logic grew to 226 tests. Evidence: `docs/screenshots/phase4-{evening,weekly-toast,atrisk-toast}.png`.
+
+Phase 4b complete (2026-11-12) — launcher capture. The `quick` launcher provider (prefix `medo`,
+`include_in_global_search = false`) answers with one row whose subtitle previews the parsed due
+label, tag and priority; Enter sends the same `add` command the panel sends, toasts
+`Sold. "…" is on today's list.` and resets the launcher input. The parser is the host-free
+`logic.parse_capture` (plus `capture_preview` and `due_day_label`), covered by 46 hand-computed
+assertions. Evidence: `docs/screenshots/phase4-launcher.png`.
 
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
 `docs/DEV.md`.

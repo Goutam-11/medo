@@ -223,6 +223,16 @@ entry = "bar.luau"
   description_key = "settings.glyph.description"
   default = "checklist"
 
+# Launcher capture: `medo buy milk @17:00 #errand !high` adds a task without
+# opening the panel. Kept out of the un-prefixed global search so typing "buy"
+# does not offer to create a task by accident.
+[[launcher_provider]]
+id = "quick"
+entry = "quick.luau"
+prefix = "medo"
+glyph = "checklist"
+include_in_global_search = false
+
 # The five-tab surface. Auto-sized to its content up to max_height.
 [[panel]]
 id = "panel"

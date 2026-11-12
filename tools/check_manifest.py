@@ -214,6 +214,16 @@ def check_entries(manifest: dict, translations: dict[str, str]) -> None:
                     elif path.is_file() and "function onKey" not in path.read_text(encoding="utf-8"):
                         error(f"{where} ('{entry_id}'): declares capture_keys but defines no onKey")
 
+            if kind == "launcher_provider":
+                prefix = entry.get("prefix")
+                if not isinstance(prefix, str) or not prefix.strip():
+                    error(f"{where} ('{entry_id}'): launcher_provider needs a non-empty 'prefix'")
+                elif "/" in prefix or " " in prefix:
+                    error(
+                        f"{where} ('{entry_id}'): prefix '{prefix}' must be a bare word; "
+                        "the launcher adds the '/' itself"
+                    )
+
             if "setting" in entry:
                 check_settings(f"{where} ('{entry_id}')", entry["setting"], translations)
 

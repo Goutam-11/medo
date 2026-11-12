@@ -534,6 +534,84 @@ eq("weekly copy", logic.weekly_notice({ done = 18, carryover = 6, score = 71 }),
 eq("monthly copy", logic.monthly_notice({ month_label = "October 2026", score = 71 }),
   "October 2026 in review — 71% efficiency.")
 
+-- ── launcher capture tokens ─────────────────────────────────────────────────
+--
+-- now is Thursday 2026-11-12 10:30; every expectation below is hand-computed
+-- from that wall clock with TZ=UTC.
+
+local capture_now = local_ms(2026, 11, 12, 10, 30)
+local capture_day = "2026-11-12"
+
+local function capture(text)
+  return logic.parse_capture(text, capture_now, capture_day)
+end
+
+local plain = capture("buy milk")
+eq("capture plain title", plain.title, "buy milk")
+eq("capture plain due", plain.due_ms, nil)
+eq("capture plain tag", plain.tag, nil)
+eq("capture plain priority", plain.priority, nil)
+eq("capture plain preview", logic.capture_preview(plain), "")
+
+eq("capture time title", capture("buy milk @17:00").title, "buy milk")
+eq("capture time due", capture("buy milk @17:00").due_ms, local_ms(2026, 11, 12, 17, 0))
+eq("capture time label", capture("buy milk @17:00").due_label, "today 17:00")
+eq("capture time already passed", capture("buy milk @09:00").due_ms, local_ms(2026, 11, 13, 9, 0))
+eq("capture time passed label", capture("buy milk @09:00").due_label, "tomorrow 09:00")
+eq("capture single digit hour", capture("standup @9:05").due_ms, local_ms(2026, 11, 13, 9, 5))
+eq("capture leading token", capture("@17:00 buy milk").title, "buy milk")
+
+eq("capture tomorrow due", capture("buy milk @tomorrow").due_ms, local_ms(2026, 11, 13, 9, 0))
+eq("capture tomorrow label", capture("buy milk @tomorrow").due_label, "tomorrow 09:00")
+eq("capture tomorrow removes token", capture("@tomorrow buy milk").title, "buy milk")
+
+local tomorrow_time = capture("buy milk @tomorrow @17:00")
+eq("capture day + time", tomorrow_time.due_ms, local_ms(2026, 11, 13, 17, 0))
+eq("capture time then day", capture("buy milk @17:00 @tomorrow").due_ms, local_ms(2026, 11, 13, 17, 0))
+eq("capture day + time title", tomorrow_time.title, "buy milk")
+
+-- 2026-11-12 is a Thursday (ISO 4); @mon is the coming Monday, @thu is a week out
+eq("capture next monday", capture("plan @mon").due_ms, local_ms(2026, 11, 16, 9, 0))
+eq("capture monday label", capture("plan @mon").due_label, "Mon 09:00")
+eq("capture same weekday is next week", capture("plan @thu").due_ms, local_ms(2026, 11, 19, 9, 0))
+eq("capture full weekday name", capture("plan @saturday").due_ms, local_ms(2026, 11, 14, 9, 0))
+eq("capture weekday + time", capture("plan @fri @18:30").due_ms, local_ms(2026, 11, 13, 18, 30))
+
+eq("capture tag", capture("buy milk #errand").tag, "errand")
+eq("capture tag removes token", capture("buy milk #errand").title, "buy milk")
+eq("capture tag keeps dash", capture("#side-project write").tag, "side-project")
+eq("capture last tag wins", capture("#first #second buy").tag, "second")
+
+eq("capture priority", capture("buy milk !high").priority, "high")
+eq("capture priority case", capture("buy milk !LOW").priority, "low")
+eq("capture unknown bang stays in title", capture("buy milk !urgent").title, "buy milk !urgent")
+eq("capture unknown bang priority", capture("buy milk !urgent").priority, nil)
+
+local mixed = capture("buy milk @17:00 #errand !high")
+eq("capture mixed title", mixed.title, "buy milk")
+eq("capture mixed tag", mixed.tag, "errand")
+eq("capture mixed priority", mixed.priority, "high")
+eq("capture mixed due", mixed.due_ms, local_ms(2026, 11, 12, 17, 0))
+eq("capture mixed preview", logic.capture_preview(mixed), "today 17:00 · #errand · high")
+
+local malformed = capture("@25:00 buy !wow # milk")
+eq("capture malformed keeps text", malformed.title, "@25:00 buy !wow # milk")
+eq("capture malformed no due", malformed.due_ms, nil)
+eq("capture malformed no tag", malformed.tag, nil)
+
+local tokens_only = capture("@17:00 #work")
+eq("capture tokens only title", tokens_only.title, "")
+eq("capture tokens only due", tokens_only.due_ms, local_ms(2026, 11, 12, 17, 0))
+eq("capture tokens only tag", tokens_only.tag, "work")
+
+eq("capture empty text", capture("").title, "")
+eq("capture whitespace", capture("   ").title, "")
+eq("capture preserves word order", capture("milk buy @17:00").title, "milk buy")
+
+-- the label compares calendar dates, so a due at 01:30 with a 04:00 rollover is
+-- still "today" rather than yesterday
+eq("capture due day label next weekday", logic.due_day_label(local_ms(2026, 11, 15, 9, 0), capture_now), "Sun 09:00")
+
 -- ── summary ─────────────────────────────────────────────────────────────────
 
 print(string.format("\n%d passed, %d failed", passed, failed))
