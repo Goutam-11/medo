@@ -114,12 +114,15 @@ Keyboard behaviour, learned the hard way (do not re-litigate this):
   in-panel key shortcuts were removed rather than shipped half-working.
 - The reliable keyboard path is **capture-first**: `onOpen` focuses the add field, so typing +
   Enter adds a task. Verified end-to-end with typed input.
-- If global shortcuts are wanted, they belong in niri, not the plugin:
+- Global shortcuts belong in niri, not the plugin. These are installed on this machine:
 
   ```kdl
-  Mod+T { spawn-sh "noctalia msg panel-open goutamsharma/medo:panel add"; }
-  Mod+Shift+T { spawn-sh "noctalia msg panel-open goutamsharma/medo:panel"; }
+  Mod+Shift+M hotkey-overlay-title="medo: capture a task" { spawn-sh "noctalia msg panel-open goutamsharma/medo:panel add"; }
+  Mod+Alt+M  hotkey-overlay-title="medo: open today"      { spawn-sh "noctalia msg panel-open goutamsharma/medo:panel"; }
   ```
+
+  `panel-open … add` lands on the panel with the capture field focused, which is the one
+  keyboard path that has worked reliably. Re-validate after editing: `niri validate`.
 
 ## Files
 
