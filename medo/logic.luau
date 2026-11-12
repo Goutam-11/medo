@@ -1041,6 +1041,50 @@ function M.mascot_state(score)
   return "sleepy"
 end
 
+-- Mascot art for a mood: the four bundled PNGs (sleepy, focused, proud,
+-- worried). `celebrating` reuses the proud face; an empty day with carried
+-- leftovers looks worried instead.
+function M.mascot_face(mood, carried)
+  if mood == "celebrating" or mood == "proud" then return "proud" end
+  if mood == "focused" then return "focused" end
+  if (tonumber(carried) or 0) > 0 then return "worried" end
+  return "sleepy"
+end
+
+-- PLAN §3.5. `eligible` is the only definition of "every task is done" the
+-- panel and the tests share; the copy is fixed so a screenshot always matches.
+function M.celebration(done, total)
+  local finished = tonumber(done) or 0
+  local planned = tonumber(total) or 0
+  return {
+    eligible = planned > 0 and finished >= planned,
+    headline = "Nothing left on the list. Go touch grass.",
+    line = string.format("%d/%d. Medo is doing a little dance.", finished, planned),
+  }
+end
+
+-- The 21:00 triage card: unfinished Today tasks are "left", Pending tasks are
+-- "waiting". The copy is the notification's question, repeated on the card.
+function M.triage_summary(tasks)
+  local open, pending = 0, 0
+  for _, task in ipairs(tasks or {}) do
+    if task.status == "today" and clamp_progress(task.progress) < 100 then
+      open = open + 1
+    elseif task.status == "pending" then
+      pending = pending + 1
+    end
+  end
+  local copy
+  if open > 0 then
+    copy = string.format("%d left today. Retry, park or drop?", open)
+  elseif pending > 0 then
+    copy = "Nothing left today. Pending can wait for tomorrow."
+  else
+    copy = "Nothing left today. Medo is impressed."
+  end
+  return { open = open, pending = pending, copy = copy }
+end
+
 -- ── notifications ───────────────────────────────────────────────────────────
 
 -- "HH:MM" → minutes since midnight; nil when malformed.

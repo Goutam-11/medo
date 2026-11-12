@@ -5,14 +5,15 @@ A cute, day-scoped task manager for **Noctalia v5** on niri.
 > The day closes itself: carry-overs are deliberate, progress is honest, and every week
 > tells you how you actually worked.
 
-**Status:** Phase 4b — Today, Pending, Dashboard, Reports, reminders and launcher capture work.
+**Status:** Phase 4c — Today, Pending, Dashboard, Reports, reminders, launcher capture and the
+life layer (mascot, sounds, celebration, triage) work.
 Capture with estimate/time/tag (or `medo buy milk @17:00 #errand !high` straight from the
 launcher), inline percent sliders, editing, park/promote and the soft cap; a live dashboard
 (score with target marker, streak, next due, carried-in, 7-day sparkline); weekly/monthly reports
 with deterministic insights and Markdown/JSON export; and the reminder scheduler (morning digest,
 at-risk and evening nudges, due/lead alerts, weekly/monthly toasts, quiet hours and crash-safe
-dedupe). The store persists everything and rolls the day over at 04:00. The celebration, the
-triage card and Trash are next. Locked decisions: [docs/PLAN.md](docs/PLAN.md).
+dedupe). The store persists everything and rolls the day over at 04:00. Trash and the
+packaging pass are next. Locked decisions: [docs/PLAN.md](docs/PLAN.md).
 
 ## What it does
 
@@ -26,7 +27,9 @@ triage card and Trash are next. Locked decisions: [docs/PLAN.md](docs/PLAN.md).
 - **Reminders and digests** — morning plan, due-time and lead-time nudges, at-risk ping,
   weekly report toast, all quiet-hours aware.
 - **Capture from the launcher** — `medo buy milk @17:00 #errand !high`.
-- **A blob on the bar** — `2/5` plus Medo, who has opinions about your day.
+- **A blob on the bar** — `2/5` plus Medo, who has opinions about your day, lives in the panel
+  header and dashboard, chimes when you finish something and dances when the list is empty.
+- **A 21:00 triage instead of a guilt trip** — Retry, park or drop what is left, on one card.
 
 ## Layout
 
