@@ -387,6 +387,153 @@ eq("mascot celebrating", logic.mascot_state(100), "celebrating")
 eq("mascot clamps high", logic.mascot_state(120), "celebrating")
 eq("mascot handles nil", logic.mascot_state(nil), "sleepy")
 
+-- ── notifications ───────────────────────────────────────────────────────────
+
+eq("clock minutes", logic.clock_minutes("08:30"), 510)
+eq("clock minutes single digit", logic.clock_minutes("8:05"), 485)
+eq("clock minutes malformed", logic.clock_minutes("8:5"), nil)
+eq("clock minutes invalid hour", logic.clock_minutes("24:00"), nil)
+
+local function at(hour, minute, day)
+  return local_ms(2026, 11, day or 12, hour, minute)
+end
+
+eq("window at target", logic.scheduled_window(at(8, 0), "08:00"), true)
+eq("window 59 min after", logic.scheduled_window(at(8, 59), "08:00"), true)
+eq("window 60 min after", logic.scheduled_window(at(9, 0), "08:00"), false)
+eq("window before target", logic.scheduled_window(at(7, 59), "08:00"), false)
+eq("window crosses midnight", logic.scheduled_window(at(0, 10, 13), "23:30"), true)
+eq("window invalid clock", logic.scheduled_window(at(8, 0), "tea"), false)
+
+eq("quiet at start", logic.in_quiet_hours(at(22, 0), "22:00", "07:00"), true)
+eq("quiet after midnight", logic.in_quiet_hours(at(3, 0), "22:00", "07:00"), true)
+eq("quiet at end", logic.in_quiet_hours(at(7, 0), "22:00", "07:00"), false)
+eq("quiet before start", logic.in_quiet_hours(at(21, 59), "22:00", "07:00"), false)
+eq("quiet simple window", logic.in_quiet_hours(at(9, 30), "08:00", "10:00"), true)
+eq("quiet empty window", logic.in_quiet_hours(at(9, 30), "22:00", "22:00"), false)
+
+local function notify_settings(overrides)
+  local settings = {
+    morning_time = "08:00", evening_time = "21:00", atrisk_time = "15:00",
+    weekly_day = "7", weekly_time = "20:00", monthly_time = "20:00",
+    quiet_start = "22:00", quiet_end = "07:00", lead_min = 15,
+    notify = {
+      morning = true, evening = true, due = true, lead = true,
+      weekly = true, monthly = true, atrisk = true,
+    },
+  }
+  for key, value in pairs(overrides or {}) do
+    if key == "notify" then
+      for flag, enabled in pairs(value) do settings.notify[flag] = enabled end
+    else
+      settings[key] = value
+    end
+  end
+  return settings
+end
+
+local notify_tasks = {
+  { id = "write", title = "Write", status = "today", progress = 40, due_ms = local_ms(2026, 11, 12, 10, 0) },
+  { id = "done", title = "Done", status = "today", progress = 100, due_ms = local_ms(2026, 11, 12, 10, 0) },
+  { id = "parked", title = "Parked", status = "pending", progress = 0, due_ms = local_ms(2026, 11, 12, 10, 0) },
+}
+local notify_context = { today_count = 2, open_count = 1, carried_count = 1, score = 40 }
+
+local function only_kind(entries, kind)
+  return #entries == 1 and entries[1].kind == kind
+end
+
+local morning = logic.notifications(at(8, 0), "2026-11-12", notify_tasks, notify_context,
+  notify_settings(), {})
+eq("morning fires in window", only_kind(morning, "morning"), true)
+eq("morning copy", morning[1].body, "Morning. 2 planned, 1 carried. Medo is ready.")
+eq("morning key", morning[1].key, "morning:2026-11-12")
+eq("morning at minute 59", only_kind(logic.notifications(at(8, 59), "2026-11-12",
+  notify_tasks, notify_context, notify_settings(), {}), "morning"), true)
+eq("morning outside window", #logic.notifications(at(9, 0), "2026-11-12",
+  notify_tasks, notify_context, notify_settings(), {}), 0)
+eq("morning deduped", #logic.notifications(at(8, 0), "2026-11-12",
+  notify_tasks, notify_context, notify_settings(), { ["morning:2026-11-12"] = 1 }), 0)
+eq("morning disabled", #logic.notifications(at(8, 0), "2026-11-12",
+  notify_tasks, notify_context, notify_settings({ notify = { morning = false } }), {}), 0)
+eq("morning empty day", logic.notifications(at(8, 0), "2026-11-12", {},
+  { today_count = 0, open_count = 0, carried_count = 0, score = 0 },
+  notify_settings(), {})[1].body, "Morning. Nothing planned yet. Three is a good start.")
+
+local at_risk = logic.notifications(at(15, 0), "2026-11-12", {},
+  { today_count = 2, open_count = 1, carried_count = 0, score = 20 }, notify_settings(), {})
+eq("at risk fires below 30", only_kind(at_risk, "atrisk"), true)
+eq("at risk copy", at_risk[1].body, "Half the day gone, nothing moved. Still fine.")
+eq("at risk above threshold", #logic.notifications(at(15, 0), "2026-11-12", {},
+  { today_count = 2, open_count = 1, carried_count = 0, score = 40 }, notify_settings(), {}), 0)
+eq("at risk needs open work", #logic.notifications(at(15, 0), "2026-11-12", {},
+  { today_count = 0, open_count = 0, carried_count = 0, score = 0 }, notify_settings(), {}), 0)
+
+local evening = logic.notifications(at(21, 0), "2026-11-12", {},
+  { today_count = 3, open_count = 2, carried_count = 0, score = 40 }, notify_settings(), {})
+eq("evening fires", only_kind(evening, "evening"), true)
+eq("evening copy", evening[1].body, "2 left. Retry, park or drop?")
+eq("evening quiet hours", #logic.notifications(at(22, 30), "2026-11-12", {},
+  { today_count = 3, open_count = 2, carried_count = 0, score = 40 },
+  notify_settings({ evening_time = "22:00" }), {}), 0)
+eq("evening needs open work", #logic.notifications(at(21, 0), "2026-11-12", {},
+  { today_count = 0, open_count = 0, carried_count = 0, score = 0 }, notify_settings(), {}), 0)
+
+local weekly = logic.notifications(at(20, 0, 15), "2026-11-15", {}, notify_context,
+  notify_settings(), {})
+eq("weekly fires Sunday", only_kind(weekly, "weekly"), true)
+eq("weekly body built later", weekly[1].body, nil)
+eq("weekly off day", #logic.notifications(at(20, 0, 16), "2026-11-16", {}, notify_context,
+  notify_settings(), {}), 0)
+eq("weekly custom day", only_kind(logic.notifications(at(20, 0, 16), "2026-11-16", {},
+  notify_context, notify_settings({ weekly_day = "1" }), {}), "weekly"), true)
+eq("weekly deduped", #logic.notifications(at(20, 0, 15), "2026-11-15", {}, notify_context,
+  notify_settings(), { ["weekly:2026-11-15"] = 1 }), 0)
+
+local monthly = logic.notifications(at(20, 0, 1), "2026-12-01", {}, notify_context,
+  notify_settings(), {})
+eq("monthly fires on the 1st", only_kind(monthly, "monthly"), true)
+eq("monthly off day", #logic.notifications(at(20, 0, 2), "2026-12-02", {}, notify_context,
+  notify_settings(), {}), 0)
+
+local lead = logic.notifications(at(9, 45), "2026-11-12", notify_tasks, notify_context,
+  notify_settings(), {})
+eq("lead fires in window", only_kind(lead, "lead"), true)
+eq("lead copy", lead[1].body, '15 min to "Write".')
+eq("lead too early", #logic.notifications(at(9, 44), "2026-11-12", notify_tasks,
+  notify_context, notify_settings(), {}), 0)
+eq("lead silent in quiet hours", #logic.notifications(at(6, 50), "2026-11-12", {
+  { id = "early", title = "Early", status = "today", progress = 0, due_ms = local_ms(2026, 11, 12, 7, 0) },
+}, notify_context, notify_settings(), {}), 0)
+
+local override_lead = {
+  { id = "short", title = "Short", status = "today", progress = 0, lead_min = 5,
+    due_ms = local_ms(2026, 11, 12, 10, 0) },
+}
+eq("task lead overrides default", only_kind(logic.notifications(at(9, 56), "2026-11-12",
+  override_lead, notify_context, notify_settings(), {}), "lead"), true)
+eq("task lead blocks early", #logic.notifications(at(9, 50), "2026-11-12",
+  override_lead, notify_context, notify_settings(), {}), 0)
+
+local due = logic.notifications(at(10, 5), "2026-11-12", notify_tasks, notify_context,
+  notify_settings(), {})
+eq("due fires after deadline", only_kind(due, "due"), true)
+eq("due copy", due[1].body, '"Write" is due now (40%).')
+eq("due deduped per task", #logic.notifications(at(10, 5), "2026-11-12", notify_tasks,
+  notify_context, notify_settings(), { ["due:write:" .. local_ms(2026, 11, 12, 10, 0)] = 1 }), 0)
+eq("due stale after 60 min", #logic.notifications(at(11, 1), "2026-11-12", notify_tasks,
+  notify_context, notify_settings(), {}), 0)
+eq("due exempt from quiet hours", only_kind(logic.notifications(at(22, 30), "2026-11-12", {
+  { id = "late", title = "Late", status = "today", progress = 10,
+    due_ms = local_ms(2026, 11, 12, 22, 25) },
+}, { today_count = 1, open_count = 1, carried_count = 0, score = 10 },
+  notify_settings(), {}), "due"), true)
+
+eq("weekly copy", logic.weekly_notice({ done = 18, carryover = 6, score = 71 }),
+  "Your week: 18 done, 6 carried, 71%.")
+eq("monthly copy", logic.monthly_notice({ month_label = "October 2026", score = 71 }),
+  "October 2026 in review — 71% efficiency.")
+
 -- ── summary ─────────────────────────────────────────────────────────────────
 
 print(string.format("\n%d passed, %d failed", passed, failed))

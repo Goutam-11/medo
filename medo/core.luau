@@ -15,12 +15,30 @@ local DEFAULTS = {
   trash_days = 30,
   cap_enabled = true,
   daily_cap = 3,
+  notify_morning = true,
+  notify_evening = true,
+  notify_due = true,
+  notify_lead = true,
+  notify_weekly = true,
+  notify_monthly = true,
+  notify_atrisk = true,
+  morning_time = "08:00",
+  evening_time = "21:00",
+  atrisk_time = "15:00",
+  weekly_day = "7",
+  weekly_time = "20:00",
+  monthly_time = "20:00",
+  quiet_start = "22:00",
+  quiet_end = "07:00",
+  lead_min = 15,
 }
 
 local doc
 local history_days = {}
 local report = nil
 local last_export = nil
+local state = nil
+local debug_notification_ms = nil
 local last_published = nil
 local last_cmd_rev = 0
 
@@ -129,9 +147,9 @@ end
 
 -- ── reports and exports ─────────────────────────────────────────────────────
 
-local function build_report(period)
+local function build_report_for(period, day)
   local chosen = period == "monthly" and "monthly" or "weekly"
-  local snapshot = logic.report(history_days, live_snapshot(), chosen, doc.day, {
+  local snapshot = logic.report(history_days, live_snapshot(), chosen, day, {
     threshold = tonumber(setting("streak_threshold")) or 70,
     cap = tonumber(setting("daily_cap")) or 3,
     limit = 4,
@@ -141,6 +159,10 @@ local function build_report(period)
     snapshot.for_revision = doc.revision or 0
   end
   return snapshot
+end
+
+local function build_report(period)
+  return build_report_for(period, doc.day)
 end
 
 -- Render the requested report and write it into export_dir. Markdown is the
@@ -184,6 +206,155 @@ local function handle_export(period, format)
   noctalia.notify("medo", "exported " .. path)
   publish(true)
   return true
+end
+
+-- ── notifications (Phase 4a) ────────────────────────────────────────────────
+
+local function notification_now()
+  return debug_notification_ms or now()
+end
+
+local function notification_settings()
+  return {
+    morning_time = tostring(setting("morning_time") or "08:00"),
+    evening_time = tostring(setting("evening_time") or "21:00"),
+    atrisk_time = tostring(setting("atrisk_time") or "15:00"),
+    weekly_day = tostring(setting("weekly_day") or "7"),
+    weekly_time = tostring(setting("weekly_time") or "20:00"),
+    monthly_time = tostring(setting("monthly_time") or "20:00"),
+    quiet_start = tostring(setting("quiet_start") or "22:00"),
+    quiet_end = tostring(setting("quiet_end") or "07:00"),
+    lead_min = tonumber(setting("lead_min")) or 15,
+    notify = {
+      morning = setting("notify_morning") ~= false,
+      evening = setting("notify_evening") ~= false,
+      due = setting("notify_due") ~= false,
+      lead = setting("notify_lead") ~= false,
+      weekly = setting("notify_weekly") ~= false,
+      monthly = setting("notify_monthly") ~= false,
+      atrisk = setting("notify_atrisk") ~= false,
+    },
+  }
+end
+
+local function notification_context()
+  local today_count, open_count, carried = 0, 0, 0
+  for _, task in ipairs(doc.tasks) do
+    if task.status == "today" then
+      today_count = today_count + 1
+      if logic.clamp_progress(task.progress) < 100 then open_count = open_count + 1 end
+    elseif task.status == "pending" and (tonumber(task.carried) or 0) > 0 then
+      carried = carried + 1
+    end
+  end
+  return {
+    today_count = today_count,
+    open_count = open_count,
+    carried_count = carried,
+    score = live_snapshot().score,
+  }
+end
+
+local function save_notification_state()
+  if not state then return end
+  local ok, err = store.save_state(state)
+  if not ok then
+    noctalia.log("medo: could not save state.json: " .. tostring(err))
+  end
+end
+
+-- A new logical day forgets yesterday's dedupe keys; the map would otherwise
+-- grow forever. It also means a task rescheduled to tomorrow can notify again.
+local function sync_state_day()
+  if not state then return end
+  if state.day ~= doc.day then
+    state.day = doc.day
+    state.notified = {}
+    state.last_tick_ms = now()
+    save_notification_state()
+  end
+end
+
+local function load_notification_state()
+  state = store.load_state()
+  if type(state) ~= "table" then
+    state = { schema = 1, day = doc.day, notified = {} }
+  end
+  if type(state.notified) ~= "table" then state.notified = {} end
+  sync_state_day()
+end
+
+local function deliver_notifications()
+  if not state then return end
+  local now_ms = notification_now()
+  local entries = logic.notifications(now_ms, doc.day, doc.tasks, notification_context(),
+    notification_settings(), state.notified)
+  if #entries == 0 then return end
+
+  local changed = false
+  for _, entry in ipairs(entries) do
+    local body = entry.body
+    if entry.kind == "weekly" then
+      body = logic.weekly_notice(build_report("weekly"))
+    elseif entry.kind == "monthly" then
+      -- the 1st at 20:00 reviews the month that just ended
+      local ordinal = logic.to_ordinal(doc.day)
+      local previous = ordinal and logic.from_ordinal(ordinal - 1) or doc.day
+      body = logic.monthly_notice(build_report_for("monthly", previous))
+    end
+    if body then
+      noctalia.notify(entry.title or "medo", body)
+      noctalia.log("medo: notify " .. tostring(entry.key) .. " :: " .. body)
+    end
+    state.notified[entry.key] = now_ms
+    changed = true
+  end
+
+  if changed then
+    state.last_tick_ms = now_ms
+    save_notification_state()
+  end
+end
+
+-- Development helper: show one notification's copy regardless of the clock.
+local function debug_notify(kind)
+  local context = notification_context()
+  local body
+  if kind == "morning" then
+    body = logic.morning_notice(context.today_count, context.carried_count)
+  elseif kind == "evening" then
+    body = logic.evening_notice(context.open_count)
+  elseif kind == "atrisk" then
+    body = logic.atrisk_notice()
+  elseif kind == "weekly" then
+    body = logic.weekly_notice(build_report("weekly"))
+  elseif kind == "monthly" then
+    -- the debug preview always reviews the previous calendar month, matching
+    -- the 1st-at-20:00 schedule even when previewed mid-month
+    local start = logic.month_start_day(doc.day)
+    local previous = start and logic.from_ordinal(logic.to_ordinal(start) - 1) or doc.day
+    body = logic.monthly_notice(build_report_for("monthly", previous))
+  else
+    local task
+    for _, candidate in ipairs(doc.tasks) do
+      if candidate.status ~= "pending" and logic.clamp_progress(candidate.progress) < 100
+        and candidate.due_ms and (not task or candidate.due_ms < task.due_ms) then
+        task = candidate
+      end
+    end
+    if task and kind == "due" then
+      body = logic.due_notice(task.title, logic.clamp_progress(task.progress))
+    elseif task and kind == "lead" then
+      body = logic.lead_notice(math.max(1, math.floor((task.due_ms - now()) / 60000 + 0.5)),
+        task.title)
+    end
+  end
+  if body then
+    noctalia.notify("medo", body)
+    noctalia.log("medo: debug notify " .. tostring(kind) .. " :: " .. body)
+  else
+    noctalia.notifyError("medo", "debug-notify: nothing to show for " .. tostring(kind))
+  end
 end
 
 -- ── mutations (each returns whether the document changed) ───────────────────
@@ -426,6 +597,7 @@ local function boot()
   end
 
   refresh_history()
+  load_notification_state()
   publish(true)
 end
 
@@ -434,6 +606,8 @@ function update()
   if day ~= doc.day and logic.days_between(doc.day, day) > 0 then
     rollover(day, "scheduled")
   end
+  sync_state_day()
+  deliver_notifications()
   publish()
 end
 
@@ -512,6 +686,30 @@ function onIpc(event, payload)
   elseif event == "debug-export" and type(payload) == "string" then
     local period, format = payload:match("^%s*(%a+)%s*(%a*)")
     handle_export(period, format)
+  elseif event == "debug-tick" and type(payload) == "string" then
+    local hours, minutes = payload:match("^(%d%d?):(%d%d)$")
+    if hours then
+      -- os.time treats tables as UTC in this Luau build, so shift by wall
+      -- clock minutes instead of constructing an epoch from date parts
+      local seconds = math.floor(now() / 1000)
+      local now_h = tonumber(os.date("%H", seconds)) or 0
+      local now_m = tonumber(os.date("%M", seconds)) or 0
+      local delta = (tonumber(hours) * 60 + tonumber(minutes)) - (now_h * 60 + now_m)
+      debug_notification_ms = now() + delta * 60000
+      noctalia.log("medo: notification clock " .. payload)
+      deliver_notifications()
+    else
+      noctalia.notifyError("medo", "debug-tick: payload must be HH:MM")
+    end
+  elseif event == "debug-clock-clear" then
+    debug_notification_ms = nil
+    noctalia.log("medo: notification clock cleared")
+  elseif event == "debug-notify" and type(payload) == "string" then
+    debug_notify(payload:match("^%s*(%a+)") or "")
+  elseif event == "debug-reset-state" then
+    state = { schema = 1, day = doc.day, notified = {}, last_tick_ms = now() }
+    save_notification_state()
+    noctalia.notify("medo", "notification state cleared")
   elseif event == "debug-reset-history" then
     store.save_history({ schema = 1, days = {} })
     refresh_history()
@@ -519,9 +717,9 @@ function onIpc(event, payload)
     publish(true)
     noctalia.notify("medo", "history cleared")
   elseif event == "debug-dump" then
-    noctalia.notify("medo", string.format("%s\n%s\nrev %d · %d tasks · %d closed days\n%s",
+    noctalia.notify("medo", string.format("%s\n%s\nrev %d · %d tasks · %d closed days\nhistory %s\nstate %s",
       tostring(store.data_path()), summary(), doc.revision or 0, #doc.tasks, #history_days,
-      tostring(store.history_path())))
+      tostring(store.history_path()), tostring(store.state_path())))
   elseif event == "debug-backdate" and type(payload) == "string" then
     -- deliberately lies about the day so a restart exercises catch-up rollover
     doc.day = payload

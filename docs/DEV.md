@@ -92,6 +92,10 @@ noctalia msg plugin goutamsharma/medo:core all debug-backdate 2026-11-09  # lie 
 noctalia msg plugin goutamsharma/medo:core all debug-report weekly   # build + publish a report
 noctalia msg plugin goutamsharma/medo:core all debug-export weekly   # write <export_dir>/medo-weekly-<end>.md
 noctalia msg plugin goutamsharma/medo:core all debug-export monthly json  # …and a JSON monthly report
+noctalia msg plugin goutamsharma/medo:core all debug-tick 08:00      # run the notification scheduler at a fake local time
+noctalia msg plugin goutamsharma/medo:core all debug-clock-clear     # back to the real clock
+noctalia msg plugin goutamsharma/medo:core all debug-notify weekly   # show one notification copy without the clock
+noctalia msg plugin goutamsharma/medo:core all debug-reset-state     # forget today's notification keys
 noctalia msg plugin goutamsharma/medo:core all debug-reset           # empty list for today
 noctalia msg plugin goutamsharma/medo:core all debug-reset-history   # empty history.json
 noctalia msg plugin goutamsharma/medo:core all add '{"title":"buy milk","estimate_min":15}'
@@ -167,12 +171,46 @@ weekly export lands on: 6/12 done, score 74 %, 6 carried (50 %), on time 2/4 (50
 34 %, best Tue 10 Nov (100 %), worst Mon 9 Nov (44 %) — all derivable from `history.json` plus
 `tasks.json`.
 
+## Notifications (Phase 4a)
+
+`core.luau` calls the pure `logic.notifications(now_ms, day, tasks, context, settings, notified)`
+on every one-second tick. It returns the notifications that are due **and not already in the
+dedupe map**; the service sends them, logs `medo: notify <key> :: <body>`, and saves
+`state.json` before the next tick.
+
+- **Settings** (see `docs/PLAN.md` §9): seven `notify_*` switches, `morning_time` 08:00,
+  `evening_time` 21:00, `atrisk_time` 15:00, `weekly_day` Sunday, `weekly_time` 20:00,
+  `monthly_time` 20:00, `quiet_start` 22:00, `quiet_end` 07:00, `lead_min` 15.
+- **Times** are local `HH:MM`. A scheduled notification has a 60-minute window after its time
+  (`logic.scheduled_window`), so a sleeping laptop catches up at 08:40 but a restart at lunchtime
+  does not replay the morning. Due alerts are the only notification exempt from quiet hours; lead
+  and scheduled notices are suppressed inside the window.
+- **Dedupe**: `state.json` = `{ schema, day, last_tick_ms, notified = { key = ms } }`. Keys are
+  `morning:<day>`, `atrisk:<day>`, `evening:<day>`, `weekly:<day>`, `monthly:<day>`,
+  `due:<task id>:<due_ms>` and `lead:<task id>:<due_ms>`. The map is cleared when the logical day
+  changes, so a task rescheduled to tomorrow can notify again. A notification never has action
+  buttons; the toast is the doorbell.
+- **Monthly** on the 1st at 20:00 reviews the month that just ended: the service builds the
+  report with `today = yesterday`, so `month_label` is the previous month. **Weekly** reviews the
+  week containing the fire day.
+- **Debug**: `debug-tick HH:MM` shifts only the scheduler clock (wall-clock delta; do not build an
+  epoch from date parts — this Luau's `os.time` treats tables as UTC), `debug-clock-clear` resets
+  it, `debug-notify <kind>` shows one copy without touching the state, `debug-reset-state` forgets
+  the keys. To screenshot a toast: `focus-workspace 2` to an empty workspace first (a fullscreen
+  window hides layer surfaces), `debug-tick`, then `grim` within the 6-second toast timeout.
+- **Verification recipe**: seed with `debug-seed-demo`, `debug-reset-state`, `debug-tick 08:00`
+  (morning), `debug-tick 15:00` (at-risk; the demo score is 25), `debug-tick 21:00` (evening), then
+  add a task due in two minutes and tick ten minutes later (due) or twenty minutes later (lead).
+  `grep 'medo: notify' ~/.cache/noctalia/noctalia.log` shows each fire exactly once; a repeat tick
+  adds nothing.
+
 ## Files
 
 | File | Runs | Notes |
 |---|---|---|
 | `medo/plugin.toml` | — | manifest; entry ids, `plugin_api = 43`, panel size |
 | `medo/core.luau` | service | owns `tasks.json`, rollover, reminders, reports, exports |
+| `medo/store.luau` | store | tasks, history, notification state, backups, exports |
 | `medo/bar.luau` | bar widget | renders `noctalia.state` view; click opens the panel |
 | `medo/panel.luau` | panel | Today / Pending / Dashboard / Reports (Trash in Phase 5) |
 | `medo/translations/en.json` | — | settings labels (`label_key` must resolve here) |
