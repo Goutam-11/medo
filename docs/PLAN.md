@@ -505,6 +505,14 @@ because the 5.4.1 `ui.graph` smooths its samples. Export writes `medo-<period>-<
 fixture with exact insight copy.
 Evidence: `docs/screenshots/phase3-{dashboard,reports-weekly,reports-monthly,reports-empty}.png`.
 
+Phase 4a complete (2026-11-12) — the reminder scheduler: all sixteen notification settings, the
+`state.json` dedupe file, the pure decision in `logic.luau` (60-minute catch-up window, quiet
+hours that exempt due alerts, at-risk once per day, per-task lead overrides), and the 08:00
+morning, 15:00 at-risk, 21:00 evening, due, lead, weekly and monthly toasts. The service applies
+the list and persists each key so a restart never repeats a toast. `debug-tick`, `debug-notify`,
+`debug-clock-clear` and `debug-reset-state` make the whole thing testable without waiting for the
+clock. Pure logic grew to 226 tests. Evidence: `docs/screenshots/phase4-{evening,weekly-toast,atrisk-toast}.png`.
+
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
 `docs/DEV.md`.
 

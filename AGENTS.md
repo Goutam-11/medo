@@ -4,9 +4,8 @@ medo is a day-scoped task manager for **Noctalia v5** on niri: a Luau plugin tha
 persists tasks, closes the day at a configurable hour, carries leftovers into a
 Pending list, and reports weekly/monthly efficiency.
 
-**Current state: Phases 0–3 merged** (scaffold, store + rollover, Today/Pending panel,
-Dashboard + Reports). Phase 4 (life: notifications, launcher capture, celebration, sounds) is
-next.
+**Current state: Phases 0–3 merged, Phase 4a merged** (reminders and notifications). Phase 4b/4c
+(launcher capture, celebration/sounds/triage) and Phase 5 (Trash, i18n, packaging) are next.
 
 ## Read first
 
@@ -44,6 +43,9 @@ noctalia msg plugin goutamsharma/medo:core all debug-seed-report
 noctalia msg plugin goutamsharma/medo:core all debug-rollover
 noctalia msg plugin goutamsharma/medo:core all debug-report weekly
 noctalia msg plugin goutamsharma/medo:core all debug-export weekly
+noctalia msg plugin goutamsharma/medo:core all debug-tick 08:00
+noctalia msg plugin goutamsharma/medo:core all debug-notify weekly
+noctalia msg plugin goutamsharma/medo:core all debug-reset-state
 noctalia msg plugin goutamsharma/medo:core all debug-dump
 grep -iE 'medo|ERR|luau' ~/.cache/noctalia/noctalia.log | tail -20
 ```
@@ -55,9 +57,9 @@ Installed niri binds: `Mod+Shift+M` captures a task (panel opens on the add fiel
 
 ```
 medo/plugin.toml     manifest: id goutamsharma/medo, plugin_api 43, entries, settings
-medo/core.luau       [[service]] — owns the document, the logical day, rollover, commands
-medo/store.luau      the ONLY module that touches disk (tasks.json, history.json, backups, exports)
-medo/logic.luau      pure rules: dates, score, snapshot, rollover, streaks, reports, insights
+medo/core.luau       [[service]] — owns the document, the logical day, rollover, reminders, commands
+medo/store.luau      the ONLY module that touches disk (tasks, history, state, backups, exports)
+medo/logic.luau      pure rules: dates, score, snapshot, rollover, streaks, reports, insights, notifications
 medo/panel.luau      [[panel]] — Today/Pending/Dashboard/Reports UI; writes nothing, sends commands
 medo/bar.luau        [[widget]] — done/total from the shared view
 medo/translations/   settings labels (label_key must resolve here)
@@ -106,6 +108,7 @@ tasks.json         live document (schema 1): day, rollover_hour, carried_in,
                    streak, tasks[], trash[]
 tasks.json.bak     previous generation, used when tasks.json is unreadable
 history.json       one aggregate snapshot per closed day (see PLAN §5)
+state.json         notification dedupe: day + notified keys (Phase 4a)
 backups/           tasks-<day>.json, newest 14, written at each rollover
 ```
 
