@@ -1,0 +1,5 @@
+{
+  "plugin.name": "medo",
+  "settings.glyph.label": "Glyph",
+  "settings.glyph.description": "Icon shown on the bar beside today's count."
+}

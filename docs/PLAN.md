@@ -417,7 +417,7 @@ older than 60 min are dropped, not replayed after a suspend; at most one at-risk
 
 ```
 medo/
-├── plugin/
+├── medo/
 │   ├── plugin.toml
 │   ├── core.luau            service: store, rollover, reminders, reports, commands
 │   ├── store.luau           schema, load/save, atomic writes, backups, migrations
@@ -433,6 +433,7 @@ medo/
 │   └── README.md
 ├── docs/
 │   ├── PLAN.md              this file
+│   └── DEV.md               dev source, IPC, testing
 │   └── DEV.md               dev source setup, IPC cheat-sheet, testing
 ├── tools/
 │   ├── gen-assets.sh        mascot rasterisation + sound synthesis
@@ -476,6 +477,9 @@ then `.luau` edits hot-reload. Writing outside the workspace needs one approval.
 | **3. Dashboard + Reports** | score, streak, sparkline, weekly/monthly, history snapshots, export | numbers match a hand-checked fixture; report renders with no history gracefully |
 | **4. Life** | notifications, launcher capture, celebration, sounds, mascot assets, triage card | each notification fires once at the right local time; `medo …@17:00` parses |
 | **5. Polish** | Trash tab, i18n, README, validator, packaging notes | `noctalia plugins lint` clean; community-ready layout |
+
+**Progress:** Phase 0 complete (2026-11-12) — the plugin loads on Noctalia 5.4.1, the bar shows
+`0/0`, and the panel opens. Evidence: `docs/screenshots/phase0-*.png`.
 
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
 `docs/DEV.md`.
