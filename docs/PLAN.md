@@ -524,6 +524,17 @@ label, tag and priority; Enter sends the same `add` command the panel sends, toa
 `logic.parse_capture` (plus `capture_preview` and `due_day_label`), covered by 46 hand-computed
 assertions. Evidence: `docs/screenshots/phase4-launcher.png`.
 
+Phase 4c complete (2026-11-12) — the mascot, the sounds and the two life surfaces. Four
+hand-drawn blob states ship as SVG sources rasterised to 128 px PNGs; the Baloo 2 SemiBold font is
+bundled with its OFL licence and used for the title, the big numbers and the celebration copy. The
+panel header and dashboard mood card show the blob (text fallback when `mascot_enabled = false`),
+the service plays chime/jingle/thud from `assets/sounds/` (sound names are per-runtime, so the
+service plays them), and the first state where every task is done shows the §3.5 celebration card
+for eight seconds, cleared by a service republish. The 21:00 decision finally has a surface: the
+`triage` panel context lists unfinished Today + Pending rows with Retry, Park and Drop.
+`tools/gen-assets.sh` reproduces every asset. Pure logic grew to 289 tests.
+Evidence: `docs/screenshots/phase4-{celebration,triage,dashboard}.png`.
+
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
 `docs/DEV.md`.
 

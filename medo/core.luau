@@ -31,6 +31,8 @@ local DEFAULTS = {
   quiet_start = "22:00",
   quiet_end = "07:00",
   lead_min = 15,
+  sounds_enabled = true,
+  mascot_enabled = true,
 }
 
 local doc
@@ -41,6 +43,14 @@ local state = nil
 local debug_notification_ms = nil
 local last_published = nil
 local last_cmd_rev = 0
+
+-- celebration + sound cues (Phase 4c): the card is a view field, not document
+-- data, and a cue is a one-shot per mutation.
+local CELEBRATION_MS = 8000
+local celebrate_until = 0
+local pending_cue = nil
+local was_all_done = false
+local cues_ready = {}
 
 local function now()
   return noctalia.nowMs()
@@ -93,6 +103,13 @@ local function counts()
   return done, total, carried, pending
 end
 
+-- PLAN §3.5's definition of "the day is finished": at least one task and every
+-- one of them at 100 %.
+local function everything_done()
+  local done, total = counts()
+  return total > 0 and done >= total
+end
+
 -- Closed days live in history.json; the service keeps them in memory so the
 -- view can build the sparkline and reports without a disk read per publish.
 local function refresh_history()
@@ -136,6 +153,8 @@ local function view()
     today_tasks = tasks_with("today"),
     pending_tasks = tasks_with("pending"),
     trash_count = #(doc.trash or {}),
+    all_done = everything_done(),
+    celebrate_until = celebrate_until,
   }
 end
 
@@ -357,6 +376,58 @@ local function debug_notify(kind)
   end
 end
 
+-- ── celebration and sound cues (Phase 4c) ───────────────────────────────────
+--
+-- Sound names are scoped to one entry runtime, so the service loads and plays
+-- them; a panel cannot play a name it did not load itself. Playback honors the
+-- shell's [audio].sound_volume and the `sounds_enabled` setting.
+
+local function load_cues()
+  for _, name in ipairs({ "chime", "jingle", "thud" }) do
+    local accepted = noctalia.sound.load(name, "assets/sounds/" .. name .. ".ogg",
+      function(ok, err)
+        if ok then
+          cues_ready[name] = true
+        else
+          noctalia.log("medo: could not load sound " .. name .. ": " .. tostring(err))
+        end
+      end)
+    if not accepted then
+      noctalia.log("medo: sound load was not accepted for " .. name)
+    end
+  end
+end
+
+local function play_cue(name)
+  if setting("sounds_enabled") == false then return end
+  if not cues_ready[name] then return end
+  noctalia.sound.play(name)
+end
+
+-- Runs after every mutation: the first state where every task is done opens the
+-- celebration card for eight seconds and plays the jingle *instead of* the
+-- per-task chime, so one action never stacks two cues.
+local function sync_celebration()
+  local finished = everything_done()
+  if finished and not was_all_done then
+    celebrate_until = now() + CELEBRATION_MS
+    pending_cue = nil
+    play_cue("jingle")
+  elseif pending_cue then
+    play_cue(pending_cue)
+  end
+  pending_cue = nil
+  was_all_done = finished
+end
+
+-- Debug fixtures and resets write the document directly, so they have to
+-- re-baseline the celebration flag themselves or the next completion would not
+-- celebrate.
+local function settle_celebration()
+  celebrate_until = 0
+  was_all_done = everything_done()
+end
+
 -- ── mutations (each returns whether the document changed) ───────────────────
 
 local function find_task(id)
@@ -396,7 +467,9 @@ end
 local function set_progress(id, progress)
   local task = find_task(id)
   if not task then return false end
+  local before = logic.clamp_progress(task.progress)
   task.progress = logic.clamp_progress(progress)
+  if task.progress >= 100 and before < 100 then pending_cue = "chime" end
   task.completed_ms = task.progress >= 100 and (task.completed_ms or now()) or nil
   task.updated_ms = now()
   return true
@@ -419,6 +492,7 @@ local function delete_task(id)
       table.remove(doc.tasks, index)
       doc.trash = doc.trash or {}
       doc.trash[#doc.trash + 1] = { task = task, deleted_ms = now() }
+      pending_cue = "thud"
       return true
     end
   end
@@ -443,6 +517,7 @@ end
 
 local function commit(changed)
   if changed then
+    sync_celebration()
     persist()
     publish(true)
   end
@@ -465,6 +540,8 @@ local function rollover(target_day, reason)
   refresh_history()
   report = nil
   store.backup(doc, plan.snapshot.day)
+  celebrate_until = 0
+  was_all_done = false
   persist()
   publish(true)
 
@@ -484,6 +561,7 @@ local function seed_demo()
   add_task({ title = "Read the plan", estimate_min = 20, progress = 0 })
   add_task({ title = "Buy milk", estimate_min = 15, tag = "life", progress = 0 })
   add_task({ title = "Old idea", estimate_min = 30, status = "pending", carried = 2, progress = 20 })
+  settle_celebration()
   persist()
   publish(true)
   noctalia.notify("medo", string.format("seeded %d tasks for %s", #doc.tasks, doc.day))
@@ -568,6 +646,7 @@ local function seed_report()
   doc.streak = streak
   report = nil
 
+  settle_celebration()
   persist()
   publish(true)
   noctalia.notify("medo", string.format("report fixture: %d closed days + %d live tasks (streak %d)",
@@ -598,6 +677,8 @@ local function boot()
 
   refresh_history()
   load_notification_state()
+  was_all_done = everything_done()
+  load_cues()
   publish(true)
 end
 
@@ -606,6 +687,14 @@ function update()
   if day ~= doc.day and logic.days_between(doc.day, day) > 0 then
     rollover(day, "scheduled")
   end
+
+  -- the celebration card clears from here, not from a panel timer: the service
+  -- ticks every second and the republish reaches every open surface
+  if celebrate_until > 0 and now() > celebrate_until then
+    celebrate_until = 0
+    publish(true)
+  end
+
   sync_state_day()
   deliver_notifications()
   publish()
@@ -716,6 +805,22 @@ function onIpc(event, payload)
     report = nil
     publish(true)
     noctalia.notify("medo", "history cleared")
+  elseif event == "debug-complete-all" then
+    local changed = false
+    for _, task in ipairs(doc.tasks) do
+      if task.status == "today" and logic.clamp_progress(task.progress) < 100 then
+        task.progress = 100
+        task.completed_ms = now()
+        task.updated_ms = now()
+        changed = true
+      end
+    end
+    local done, total = counts()
+    if commit(changed) then
+      noctalia.notify("medo", string.format("completed every task (%d/%d)", done, total))
+    else
+      noctalia.notify("medo", "nothing to complete")
+    end
   elseif event == "debug-dump" then
     noctalia.notify("medo", string.format("%s\n%s\nrev %d · %d tasks · %d closed days\nhistory %s\nstate %s",
       tostring(store.data_path()), summary(), doc.revision or 0, #doc.tasks, #history_days,
@@ -727,6 +832,7 @@ function onIpc(event, payload)
     noctalia.notify("medo", "day backdated to " .. payload .. " (restart the plugin to test catch-up)")
   elseif event == "debug-reset" then
     doc = logic.default_doc(today(), setting("rollover_hour"))
+    settle_celebration()
     persist()
     publish(true)
     noctalia.notify("medo", "list reset")

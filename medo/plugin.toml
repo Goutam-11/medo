@@ -77,6 +77,25 @@ label_key = "settings.export_dir.label"
 description_key = "settings.export_dir.description"
 default = ""
 
+# ── sound and mascot (Phase 4c) ─────────────────────────────────────────────
+# The cues are bundled .ogg files played by the service (sound names are scoped
+# to one entry runtime); playback honors [audio].sound_volume. The mascot is a
+# bundled PNG in the panel header and dashboard, with the text face as fallback.
+
+[[setting]]
+key = "sounds_enabled"
+type = "bool"
+label_key = "settings.sounds_enabled.label"
+description_key = "settings.sounds_enabled.description"
+default = true
+
+[[setting]]
+key = "mascot_enabled"
+type = "bool"
+label_key = "settings.mascot_enabled.label"
+description_key = "settings.mascot_enabled.description"
+default = true
+
 # ── notifications (Phase 4) ─────────────────────────────────────────────────
 # The service evaluates these on its one-second tick and dedupes them in
 # state.json. Times are local "HH:MM"; a toast fires within 60 minutes of its

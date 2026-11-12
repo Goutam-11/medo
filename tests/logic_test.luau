@@ -387,6 +387,39 @@ eq("mascot celebrating", logic.mascot_state(100), "celebrating")
 eq("mascot clamps high", logic.mascot_state(120), "celebrating")
 eq("mascot handles nil", logic.mascot_state(nil), "sleepy")
 
+-- mascot_face maps the mood to one of the four bundled PNGs
+eq("face sleepy", logic.mascot_face("sleepy", 0), "sleepy")
+eq("face sleepy with carried", logic.mascot_face("sleepy", 2), "worried")
+eq("face focused ignores carried", logic.mascot_face("focused", 3), "focused")
+eq("face proud", logic.mascot_face("proud", 0), "proud")
+eq("face celebrating uses proud art", logic.mascot_face("celebrating", 0), "proud")
+
+-- celebration eligibility + PLAN §3.5 copy
+local party = logic.celebration(4, 4)
+eq("celebration eligible", party.eligible, true)
+eq("celebration headline", party.headline, "Nothing left on the list. Go touch grass.")
+eq("celebration line", party.line, "4/4. Medo is doing a little dance.")
+eq("celebration partial", logic.celebration(3, 4).eligible, false)
+eq("celebration empty day", logic.celebration(0, 0).eligible, false)
+eq("celebration clamps", logic.celebration(5, 4).eligible, true)
+
+-- triage summary counts unfinished Today and Pending rows
+local triage_list = {
+  { id = "a", status = "today", progress = 0 },
+  { id = "b", status = "today", progress = 100 },
+  { id = "c", status = "pending", progress = 30 },
+  { id = "d", status = "pending", progress = 0 },
+}
+local triage = logic.triage_summary(triage_list)
+eq("triage open", triage.open, 1)
+eq("triage pending", triage.pending, 2)
+eq("triage copy", triage.copy, "1 left today. Retry, park or drop?")
+eq("triage copy idle", logic.triage_summary({ { status = "today", progress = 100 } }).copy,
+  "Nothing left today. Medo is impressed.")
+eq("triage copy waiting", logic.triage_summary({ { status = "pending", progress = 0 } }).copy,
+  "Nothing left today. Pending can wait for tomorrow.")
+eq("triage empty", logic.triage_summary({}).copy, "Nothing left today. Medo is impressed.")
+
 -- ── notifications ───────────────────────────────────────────────────────────
 
 eq("clock minutes", logic.clock_minutes("08:30"), 510)

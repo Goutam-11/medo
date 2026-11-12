@@ -5,6 +5,25 @@
 
 local logic = require("./logic.luau")
 
+-- Bundled assets (Phase 4c). The font registers once per entry; a missing file
+-- or `mascot_enabled = false` falls back to the shell font and the text mascot.
+local HEADER_FONT = noctalia.loadFont("assets/fonts/Baloo2-SemiBold.ttf")
+local asset_checked = {}
+
+local function asset(name)
+  if asset_checked[name] == nil then
+    asset_checked[name] = noctalia.fileExists(name) and name or false
+  end
+  return asset_checked[name] or nil
+end
+
+local function mascot_image(state, size)
+  if noctalia.getConfig("mascot_enabled") == false then return nil end
+  local path = asset("assets/mascot/" .. state .. ".png")
+  if not path then return nil end
+  return ui.image({ path = path, width = size, height = size, fit = "contain" })
+end
+
 local ESTIMATES = { 15, 30, 45, 60, 90 }
 local ESTIMATE_LABELS = { "15m", "30m", "45m", "60m", "90m" }
 local PRIORITIES = { "low", "med", "high" }
@@ -100,6 +119,12 @@ local function mascot()
   return "(´･ᴗ･`)"
 end
 
+-- The blob when the artwork is available, the text face otherwise.
+local function mascot_node(size, fontSize)
+  local face = logic.mascot_face(logic.mascot_state(view.score), view.carried)
+  return mascot_image(face, size) or ui.label({ text = mascot(), fontSize = fontSize, color = "primary" })
+end
+
 local function tagline()
   local total = view.total or 0
   local done = view.done or 0
@@ -147,7 +172,13 @@ local function dashboard_body()
 
   local score_card = ui.column({ gap = 6, padding = 12, radius = 12, fill = "surface_container" }, {
     ui.row({ gap = 10, align = "center" }, {
-      ui.label({ text = string.format("%d%%", score), fontSize = 40, fontWeight = "bold", color = mood_color }),
+      ui.label({
+        text = string.format("%d%%", score),
+        fontSize = 40,
+        fontWeight = "bold",
+        color = mood_color,
+        fontFamily = HEADER_FONT,
+      }),
       ui.column({ gap = 1, flexGrow = 1 }, {
         ui.label({ text = "today's score", fontSize = 11, color = "on_surface_variant" }),
         ui.label({
@@ -206,7 +237,7 @@ local function dashboard_body()
   })
 
   local mood_card = ui.row({ gap = 10, align = "center", padding = 10, radius = 10, fill = "primary_container" }, {
-    ui.label({ text = mascot(), fontSize = 22, color = "on_primary_container" }),
+    mascot_node(52, 22),
     ui.column({ gap = 1, flexGrow = 1 }, {
       ui.label({
         text = MASCOT_COPY[mood] or MASCOT_COPY.sleepy,
@@ -766,14 +797,152 @@ local function add_form()
   return ui.column({ gap = 6, padding = 10, radius = 10, fill = "surface_container" }, children)
 end
 
+-- ── celebration (Phase 4c) ──────────────────────────────────────────────────
+
+local dismissed_celebration = 0
+
+-- The service stamps `celebrate_until` (now + 8 s) the first time every task is
+-- done; the card shows until then, until "Back to the list", or until the stamp
+-- changes. No animation exists at API 43, so this is a static card with a timer.
+local function celebrating()
+  local until_ms = tonumber(view.celebrate_until) or 0
+  if until_ms <= 0 or until_ms <= noctalia.nowMs() then return false end
+  return dismissed_celebration < until_ms
+end
+
+local function celebration_body()
+  local card = logic.celebration(view.done, view.total)
+  local children = { mascot_image("proud", 96) or ui.label({ text = "(≧▽≦)", fontSize = 52, color = "tertiary" }) }
+  children[#children + 1] = ui.label({
+    text = card.headline,
+    fontSize = 20,
+    fontWeight = "bold",
+    textAlign = "center",
+    fontFamily = HEADER_FONT,
+    maxLines = 2,
+  })
+  children[#children + 1] = ui.label({
+    text = card.line,
+    fontSize = 13,
+    textAlign = "center",
+    color = "on_surface_variant",
+  })
+  children[#children + 1] = ui.button({
+    text = "Back to the list",
+    variant = "ghost",
+    controlSize = "sm",
+    onClick = function()
+      dismissed_celebration = tonumber(view.celebrate_until) or 0
+      render()
+    end,
+  })
+  return ui.column({ gap = 10, padding = 24, radius = 14, fill = "surface_container", align = "center" }, children)
+end
+
+-- ── evening triage (Phase 4c) ───────────────────────────────────────────────
+--
+-- Notifications carry no action buttons, so the 21:00 toast is the doorbell and
+-- this card is the surface: `noctalia msg panel-open goutamsharma/medo:panel triage`.
+
+local triage_ignored = {}
+
+local function triage_tasks()
+  local rows = {}
+  for _, task in ipairs(view.today_tasks or {}) do
+    if progress_of(task) < 100 and not triage_ignored[task.id] then rows[#rows + 1] = task end
+  end
+  for _, task in ipairs(view.pending_tasks or {}) do
+    if not triage_ignored[task.id] then rows[#rows + 1] = task end
+  end
+  return rows
+end
+
+local function triage_row(task)
+  local due = due_text(task)
+  local top = {
+    ui.glyph({ name = "circle", size = 14, color = priority_color(task.priority) }),
+    ui.label({ text = task.title, fontSize = 13, flexGrow = 1, maxLines = 1 }),
+    badge(task.status == "pending" and "pending" or "today", "on_surface_variant"),
+  }
+  if due then top[#top + 1] = badge(due, is_overdue(task) and "error" or "on_surface_variant") end
+  if (tonumber(task.carried) or 0) > 0 then top[#top + 1] = badge("×" .. tostring(task.carried), "tertiary") end
+
+  local function act(kind)
+    return function()
+      send(kind, { id = task.id })
+      -- answered rows leave the card immediately; the service republishes the
+      -- view a moment later for the rows that really changed state
+      triage_ignored[task.id] = true
+      render()
+    end
+  end
+
+  local buttons = {
+    ui.button({
+      text = "Retry",
+      variant = "primary",
+      controlSize = "sm",
+      tooltip = "keep it committed for today",
+      onClick = act("promote"),
+    }),
+  }
+  if task.status ~= "pending" then
+    buttons[#buttons + 1] = ui.button({
+      text = "Park",
+      variant = "ghost",
+      controlSize = "sm",
+      tooltip = "move it to Pending",
+      onClick = act("park"),
+    })
+  end
+  buttons[#buttons + 1] = ui.spacer({ flexGrow = 1 })
+  buttons[#buttons + 1] = ui.button({
+    text = "Drop",
+    variant = "destructive",
+    controlSize = "sm",
+    tooltip = "move it to Trash",
+    onClick = act("delete"),
+  })
+
+  return ui.column({ gap = 6, padding = 8, radius = 10, fill = "surface_container" }, {
+    ui.row({ gap = 6, align = "center" }, top),
+    ui.row({ gap = 6, align = "center" }, buttons),
+  })
+end
+
+local function triage_body()
+  local rows = triage_tasks()
+  local summary = logic.triage_summary(rows)
+  local children = {
+    ui.column({ gap = 3, padding = 12, radius = 12, fill = "primary_container" }, {
+      ui.label({ text = "evening triage", fontSize = 10, color = "on_primary_container" }),
+      ui.label({ text = summary.copy, fontSize = 13, color = "on_primary_container", maxLines = 2 }),
+    }),
+  }
+  if #rows == 0 then
+    children[#children + 1] = ui.column({ gap = 4, padding = 14, radius = 10, fill = "surface_container" }, {
+      ui.label({ text = "Nothing left to decide. Good night.", fontSize = 12, color = "on_surface_variant" }),
+    })
+  else
+    for _, task in ipairs(rows) do children[#children + 1] = triage_row(task) end
+    children[#children + 1] = ui.label({
+      text = "Retry keeps it, Park sends it to Pending, Drop moves it to Trash. Rollover carries whatever is left.",
+      fontSize = 9,
+      color = "on_surface_variant",
+      maxLines = 2,
+    })
+  end
+  return ui.column({ gap = 6 }, children)
+end
+
 -- ── header, tabs, bodies, footer ────────────────────────────────────────────
 
 local function header()
   return ui.row({ gap = 10, align = "center" }, {
-    ui.label({ text = mascot(), fontSize = 18, color = "primary" }),
+    mascot_node(30, 18),
     ui.column({ flexGrow = 1, gap = 2 }, {
       ui.row({ gap = 8, align = "center" }, {
-        ui.label({ text = "medo", fontSize = 16, fontWeight = "bold" }),
+        ui.label({ text = "medo", fontSize = 17, fontWeight = "bold", fontFamily = HEADER_FONT }),
         ui.label({ text = view.day or "…", fontSize = 11, color = "on_surface_variant" }),
         ui.label({ text = string.format("%d%%", view.score or 0), fontSize = 11, color = "primary" }),
         ui.label({ text = "🔥" .. tostring(view.streak or 0), fontSize = 11, color = "on_surface_variant" }),
@@ -913,8 +1082,18 @@ function render()
   local rows = current_rows()
   if #rows == 0 then selected = 1 elseif selected > #rows then selected = #rows end
 
+  -- the service clears the stamp when it expires; these ticks only shorten the
+  -- delay while the card is up (a panel tick is not guaranteed on 5.4.1)
+  local celebration = celebrating()
+  panel.setWantsSecondTicks(celebration)
+  noctalia.setUpdateInterval(celebration and 1000 or 30000)
+
   local body
-  if tab == "dashboard" then
+  if celebration then
+    body = celebration_body()
+  elseif tab == "triage" then
+    body = triage_body()
+  elseif tab == "dashboard" then
     body = dashboard_body()
   elseif tab == "reports" then
     request_report(false)
@@ -942,11 +1121,15 @@ function onOpen(context)
   tab = "today"
   selected = 1
   last_report_request = nil
+  triage_ignored = {}
+  dismissed_celebration = 0
 
   -- context comes from `noctalia msg panel-open <id> <context>`; notifications
   -- and debugging use it to land on the right surface
   if context == "pending" then
     tab = "pending"
+  elseif context == "triage" then
+    tab = "triage"
   elseif context == "dashboard" then
     tab = "dashboard"
   elseif context == "reports" or context == "reports-monthly" then
@@ -985,9 +1168,16 @@ function onOpen(context)
 end
 
 function update()
-  -- the service pushes every change through the view watch; a slow tick only
-  -- refreshes the dashboard countdown while it is on screen
-  if tab == "dashboard" then render() end
+  -- the service pushes every change through the view watch; the slow tick keeps
+  -- the dashboard countdown honest, and the one-second ticks expire the
+  -- celebration card after ~8 s
+  if tab == "dashboard" or celebrating() then render() end
+end
+
+-- Drop the one-second cadence when the panel goes away; render() reinstates it
+-- the next time a celebration starts.
+function onClose()
+  noctalia.setUpdateInterval(30000)
 end
 
 noctalia.state.watch("view", function()
