@@ -114,6 +114,7 @@ noctalia msg panel-open goutamsharma/medo:panel edit:<id>        # open the edit
 noctalia msg panel-open goutamsharma/medo:panel dashboard        # score, streak, next due, sparkline
 noctalia msg panel-open goutamsharma/medo:panel reports          # weekly report (requests it)
 noctalia msg panel-open goutamsharma/medo:panel reports-monthly  # monthly report
+noctalia msg panel-open launcher "/medo buy milk @17:00 #errand !high"   # launcher capture
 ```
 
 Keyboard behaviour, learned the hard way (do not re-litigate this):
@@ -204,6 +205,40 @@ dedupe map**; the service sends them, logs `medo: notify <key> :: <body>`, and s
   `grep 'medo: notify' ~/.cache/noctalia/noctalia.log` shows each fire exactly once; a repeat tick
   adds nothing.
 
+## Launcher capture (Phase 4b)
+
+`medo buy milk @17:00 #errand !high` in the launcher adds a task to Today without opening the
+panel. The parser is the pure `logic.parse_capture(text, now_ms, now_day)`; the provider
+(`medo/quick.luau`) only renders the preview and sends the `add` command the panel would send.
+
+| token | meaning |
+| --- | --- |
+| `@HH:MM` | next occurrence of that wall clock: today if still ahead, else tomorrow |
+| `@tomorrow` | that day at 09:00 (a day token has to remind at a civilised hour) |
+| `@mon` … `@sun` (or full names) | next occurrence **strictly after** the logical day, so `@mon` typed on a Monday means the coming Monday, at 09:00 |
+| `#tag` | free-form tag, last one wins |
+| `!low` `!med` `!high` | priority, case-insensitive, last one wins |
+
+A day token and a clock combine in either order (`@tomorrow @17:00` = `@17:00 @tomorrow`). Every
+word that is not a valid token stays in the title, so `@25:00`, `!urgent` or a bare `#` degrade
+into text instead of failing; a query that is only tokens has an empty title and the provider
+answers with a hint instead of adding anything.
+
+The launcher provider is **not IPC-addressable** (only widget, panel and service entries are), so
+verify it through the real surface:
+
+```bash
+noctalia msg panel-open launcher "/medo buy milk @17:00 #errand !high"   # prefilled query
+grim docs/screenshots/phase4-launcher.png                                # result row + preview
+wtype -k Return                                                          # activate
+noctalia msg plugin goutamsharma/medo:core all debug-dump                # or read tasks.json
+```
+
+`wtype` types into the launcher the way a keyboard does, and Enter activates the highlighted
+result; there is no pointer injection on this machine, so a click on the row is not verifiable.
+Activation toasts `Sold. "buy milk" is on today's list.` and calls `launcher.setQuery("")`, which
+resets the input to the provider root (`/medo`) instead of closing the launcher.
+
 ## Files
 
 | File | Runs | Notes |
@@ -213,4 +248,5 @@ dedupe map**; the service sends them, logs `medo: notify <key> :: <body>`, and s
 | `medo/store.luau` | store | tasks, history, notification state, backups, exports |
 | `medo/bar.luau` | bar widget | renders `noctalia.state` view; click opens the panel |
 | `medo/panel.luau` | panel | Today / Pending / Dashboard / Reports (Trash in Phase 5) |
+| `medo/quick.luau` | launcher | `medo …` capture: previews the parsed fields and sends `add` |
 | `medo/translations/en.json` | — | settings labels (`label_key` must resolve here) |

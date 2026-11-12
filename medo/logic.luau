@@ -241,6 +241,143 @@ function M.due_from_clock(text, now_ms)
   return math.floor(seconds + delta * 60) * 1000
 end
 
+-- ── launcher capture tokens (Phase 4b) ──────────────────────────────────────
+--
+-- `medo buy milk @17:00 #errand !high` parses into a task without opening the
+-- panel. Tokens are whitespace-separated words; anything that is not a valid
+-- token stays in the title in its original order, so malformed input degrades
+-- into a plain task instead of an error.
+
+local CAPTURE_WEEKDAYS = {
+  mon = 1, monday = 1,
+  tue = 2, tues = 2, tuesday = 2,
+  wed = 3, weds = 3, wednesday = 3,
+  thu = 4, thur = 4, thurs = 4, thursday = 4,
+  fri = 5, friday = 5,
+  sat = 6, saturday = 6,
+  sun = 7, sunday = 7,
+}
+
+local CAPTURE_PRIORITIES = { low = true, med = true, high = true }
+
+-- A day token without a clock lands at 09:00 on that day: a task that belongs
+-- to a day has to remind at a civilised hour, not at midnight.
+local CAPTURE_DEFAULT_HOUR = 9
+
+-- Wall clock of `now_ms` as hours and minutes.
+local function wall_clock(now_ms)
+  local seconds = math.floor((tonumber(now_ms) or 0) / 1000)
+  return tonumber(os.date("%H", seconds)) or 0, tonumber(os.date("%M", seconds)) or 0
+end
+
+-- Epoch ms of `hour:minute` on the day `days` after the logical day. Built by
+-- shifting whole days and then minutes, never by constructing an epoch from
+-- date parts (this Luau treats os.time tables as UTC).
+local function capture_at(now_ms, days, hour, minute)
+  local now_h, now_m = wall_clock(now_ms)
+  local target = math.floor(now_ms / 60000) * 60000 + (tonumber(days) or 0) * 86400000
+  return target + ((hour * 60 + minute) - (now_h * 60 + now_m)) * 60000
+end
+
+-- "today 17:00" / "tomorrow 09:00" / "Mon 09:00", computed against the calendar
+-- day of now_ms rather than the logical day: 01:30 with a 04:00 rollover still
+-- calls the same calendar date "today".
+function M.due_day_label(due_ms, now_ms)
+  if not due_ms then return nil end
+  local due_seconds = math.floor((tonumber(due_ms) or 0) / 1000)
+  local now_seconds = math.floor((tonumber(now_ms) or 0) / 1000)
+  local due_day = os.date("%Y-%m-%d", due_seconds)
+  local today = os.date("%Y-%m-%d", now_seconds)
+  local label = os.date("%a", due_seconds)
+  if due_day == today then
+    label = "today"
+  else
+    local ordinal = M.to_ordinal(today)
+    if ordinal and due_day == M.from_ordinal(ordinal + 1) then label = "tomorrow" end
+  end
+  return label .. " " .. os.date("%H:%M", due_seconds)
+end
+
+-- Parse one capture string. Returns
+--   { title, due_ms, due_label, tag, priority }
+-- where due_ms/ due_label / tag / priority are nil when the text had no token.
+-- Day tokens resolve to the next occurrence strictly after the logical day, so
+-- `@mon` typed on a Monday means the coming Monday, not today. A later token of
+-- the same kind wins over an earlier one.
+function M.parse_capture(text, now_ms, now_day)
+  now_ms = tonumber(now_ms) or 0
+  local day = type(now_day) == "string" and now_day or M.logical_day(now_ms, 4)
+  local day_ordinal = M.to_ordinal(day)
+
+  local title_words = {}
+  local clock_hour, clock_minute
+  local day_delta
+  local tag
+  local priority
+
+  for word in tostring(text or ""):gmatch("%S+") do
+    local hour, minute = word:match("^@(%d%d?):(%d%d)$")
+    local weekday = word:match("^@(%a+)$")
+    local hash = word:match("^#([%a%d_-]+)$")
+    local bang = word:match("^!(%a+)$")
+    local consumed = false
+
+    if hour then
+      hour, minute = tonumber(hour), tonumber(minute)
+      if hour <= 23 and minute <= 59 then
+        clock_hour, clock_minute = hour, minute
+        consumed = true
+      end
+    elseif weekday then
+      local key = weekday:lower()
+      if key == "tomorrow" then
+        day_delta = 1
+        consumed = true
+      elseif CAPTURE_WEEKDAYS[key] and day_ordinal then
+        local offset = (CAPTURE_WEEKDAYS[key] - (M.weekday_iso(day) or 1)) % 7
+        day_delta = offset == 0 and 7 or offset
+        consumed = true
+      end
+    elseif hash then
+      tag = hash
+      consumed = true
+    elseif bang and CAPTURE_PRIORITIES[bang:lower()] then
+      priority = bang:lower()
+      consumed = true
+    end
+
+    if not consumed then title_words[#title_words + 1] = word end
+  end
+
+  local due_ms
+  if clock_hour and day_delta then
+    due_ms = capture_at(now_ms, day_delta, clock_hour, clock_minute)
+  elseif clock_hour then
+    -- a bare time means the next occurrence of that wall clock
+    due_ms = M.due_from_clock(string.format("%02d:%02d", clock_hour, clock_minute), now_ms)
+  elseif day_delta then
+    due_ms = capture_at(now_ms, day_delta, CAPTURE_DEFAULT_HOUR, 0)
+  end
+
+  return {
+    title = table.concat(title_words, " "),
+    due_ms = due_ms,
+    due_label = M.due_day_label(due_ms, now_ms),
+    tag = tag,
+    priority = priority,
+  }
+end
+
+-- The subtitle the launcher shows before Enter: "today 17:00 · #errand · high".
+function M.capture_preview(parsed)
+  if type(parsed) ~= "table" then return "" end
+  local parts = {}
+  if parsed.due_label then parts[#parts + 1] = parsed.due_label end
+  if parsed.tag then parts[#parts + 1] = "#" .. parsed.tag end
+  if parsed.priority then parts[#parts + 1] = parsed.priority end
+  return table.concat(parts, " · ")
+end
+
 -- ── weights, score, snapshot ────────────────────────────────────────────────
 
 function M.priority_mult(priority)

@@ -5,14 +5,14 @@ A cute, day-scoped task manager for **Noctalia v5** on niri.
 > The day closes itself: carry-overs are deliberate, progress is honest, and every week
 > tells you how you actually worked.
 
-**Status:** Phase 4a — Today, Pending, Dashboard, Reports and reminders work. Capture with
-estimate/time/tag, inline percent sliders, editing, park/promote and the soft cap; a live
-dashboard (score with target marker, streak, next due, carried-in, 7-day sparkline); weekly/monthly
-reports with deterministic insights and Markdown/JSON export; and the reminder scheduler (morning
-digest, at-risk and evening nudges, due/lead alerts, weekly/monthly toasts, quiet hours and
-crash-safe dedupe). The store persists everything and rolls the day over at 04:00. Launcher
-capture, the celebration, the triage card and Trash are next. Locked decisions:
-[docs/PLAN.md](docs/PLAN.md).
+**Status:** Phase 4b — Today, Pending, Dashboard, Reports, reminders and launcher capture work.
+Capture with estimate/time/tag (or `medo buy milk @17:00 #errand !high` straight from the
+launcher), inline percent sliders, editing, park/promote and the soft cap; a live dashboard
+(score with target marker, streak, next due, carried-in, 7-day sparkline); weekly/monthly reports
+with deterministic insights and Markdown/JSON export; and the reminder scheduler (morning digest,
+at-risk and evening nudges, due/lead alerts, weekly/monthly toasts, quiet hours and crash-safe
+dedupe). The store persists everything and rolls the day over at 04:00. The celebration, the
+triage card and Trash are next. Locked decisions: [docs/PLAN.md](docs/PLAN.md).
 
 ## What it does
 
