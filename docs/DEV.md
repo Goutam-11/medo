@@ -103,6 +103,10 @@ noctalia msg plugin goutamsharma/medo:core all progress '{"id":"t_…","progress
 noctalia msg plugin goutamsharma/medo:core all park '{"id":"t_…"}'
 noctalia msg plugin goutamsharma/medo:core all promote '{"id":"t_…"}'
 noctalia msg plugin goutamsharma/medo:core all delete '{"id":"t_…"}'
+noctalia msg plugin goutamsharma/medo:core all restore '{"id":"t_…"}'      # Trash → Today
+noctalia msg plugin goutamsharma/medo:core all purge '{"id":"t_…"}'        # delete forever
+noctalia msg plugin goutamsharma/medo:core all empty-trash
+noctalia msg plugin goutamsharma/medo:core all debug-seed-trash            # 3 rows, 0/3/27 days old
 ```
 
 The panel can be opened on a specific surface, which is also how notifications will land:
@@ -115,6 +119,7 @@ noctalia msg panel-open goutamsharma/medo:panel dashboard        # score, streak
 noctalia msg panel-open goutamsharma/medo:panel reports          # weekly report (requests it)
 noctalia msg panel-open goutamsharma/medo:panel reports-monthly  # monthly report
 noctalia msg panel-open goutamsharma/medo:panel triage           # the 21:00 decision card
+noctalia msg panel-open goutamsharma/medo:panel trash            # Trash tab with counts
 noctalia msg panel-open launcher "/medo buy milk @17:00 #errand !high"   # launcher capture
 ```
 
@@ -239,6 +244,24 @@ noctalia msg plugin goutamsharma/medo:core all debug-dump                # or re
 result; there is no pointer injection on this machine, so a click on the row is not verifiable.
 Activation toasts `Sold. "buy milk" is on today's list.` and calls `launcher.setQuery("")`, which
 resets the input to the provider root (`/medo`) instead of closing the launcher.
+
+## Trash (Phase 5a)
+
+`view.trash_tasks` is a list of `{ task, deleted_ms, days_left }`, newest deletion first. The panel
+sends `restore`, `purge` or `empty-trash`; the service is still the only writer, and rollover is
+still the only *automatic* purge.
+
+- `logic.trash_days_left(deleted_ms, now_ms, retention_days)` is `ceil(retention − age)`, so a fresh
+  delete shows the full window and `0` means "goes at the next rollover". `logic.purge_trash` only
+  removes entries **past** the window, so the countdown and the purge agree at the boundary
+  (both directions are unit-tested).
+- **Restore** keeps the progress the task had and appends it to Today (`order = #tasks + 1`), so a
+  restore never rewrites what was already planned. **Delete forever** removes the row and has no
+  per-row undo; the rollover `tasks.json.bak` generations are the only safety net.
+- Five tabs share the 460 px panel, so the strip uses a 10 px face and the dashboard tab reads
+  **`Stats`** — "Dashboard" clipped at this width, "Pending 1"/"Reports" did not (measured on
+  5.4.1, not guessed).
+- `debug-seed-trash` adds three rows aged 0/3/27 days for the countdown screenshot.
 
 ## Assets, sound and the celebration (Phase 4c)
 

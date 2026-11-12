@@ -565,6 +565,18 @@ function M.purge_trash(trash, now_ms, days)
   return kept, removed
 end
 
+-- Days left before rollover purges a trash entry, rounded up: something deleted
+-- just now with a 30-day window shows 30, something deleted 29.5 days ago shows
+-- 1, and 0 means "goes at the next rollover". `purge_trash` drops an entry once
+-- its age exceeds the window, which is the same boundary seen from the other side.
+function M.trash_days_left(deleted_ms, now_ms, retention_days)
+  local keep_days = tonumber(retention_days) or 30
+  local age_days = ((tonumber(now_ms) or 0) - (tonumber(deleted_ms) or 0)) / 86400000
+  local left = math.ceil(keep_days - age_days)
+  if left < 0 then return 0 end
+  return left
+end
+
 -- Streak: consecutive closed days scoring at least `threshold` with work on the
 -- list. A gap (shell was off) breaks the run rather than being silently bridged.
 function M.advance_streak(streak, snapshot, threshold)
