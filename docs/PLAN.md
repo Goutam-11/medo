@@ -320,6 +320,9 @@ planned vs completed effort, longest streak, and a "what changed" line. Export a
   - Pending empty → `No leftovers. Medo is pleasantly surprised.`
   - Trash empty → `Nothing thrown away. Look at you.`
 - **Overdue banner**: `2 tasks are late. Not judging. (a little.)`
+- **Tab strip at 460 px**: five tabs fit on one row with a 10 px face; the dashboard tab is
+  labelled `Stats` because "Dashboard" clipped while "Pending 1" and "Reports" did not. Counts ride
+  on Today / Pending / Trash.
 
 ### 7.3 Dashboard
 
@@ -534,6 +537,14 @@ for eight seconds, cleared by a service republish. The 21:00 decision finally ha
 `triage` panel context lists unfinished Today + Pending rows with Retry, Park and Drop.
 `tools/gen-assets.sh` reproduces every asset. Pure logic grew to 289 tests.
 Evidence: `docs/screenshots/phase4-{celebration,triage,dashboard}.png`.
+
+Phase 5a complete (2026-11-12) — the fifth tab. `view.trash_tasks` publishes every trashed task
+with its deletion time and remaining days; rows show the date and the countdown and act through
+`restore` (back to Today, progress kept, order appended), `purge` (delete forever) and
+`empty-trash`. The countdown is `logic.trash_days_left`, and its boundary matches `purge_trash`
+exactly (tested from both sides). `debug-seed-trash` seeds three rows for the screenshot; the tab
+strip fits five tabs at 460 px with a 10 px face. Pure logic grew to 300 tests.
+Evidence: `docs/screenshots/phase5-trash.png`.
 
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
 `docs/DEV.md`.

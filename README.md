@@ -5,19 +5,21 @@ A cute, day-scoped task manager for **Noctalia v5** on niri.
 > The day closes itself: carry-overs are deliberate, progress is honest, and every week
 > tells you how you actually worked.
 
-**Status:** Phase 4c — Today, Pending, Dashboard, Reports, reminders, launcher capture and the
-life layer (mascot, sounds, celebration, triage) work.
+**Status:** Phase 5a — Today, Pending, Stats, Reports and Trash, reminders, launcher capture and
+the life layer (mascot, sounds, celebration, triage) work.
 Capture with estimate/time/tag (or `medo buy milk @17:00 #errand !high` straight from the
 launcher), inline percent sliders, editing, park/promote and the soft cap; a live dashboard
 (score with target marker, streak, next due, carried-in, 7-day sparkline); weekly/monthly reports
 with deterministic insights and Markdown/JSON export; and the reminder scheduler (morning digest,
 at-risk and evening nudges, due/lead alerts, weekly/monthly toasts, quiet hours and crash-safe
-dedupe). The store persists everything and rolls the day over at 04:00. Trash and the
-packaging pass are next. Locked decisions: [docs/PLAN.md](docs/PLAN.md).
+dedupe). Deleted tasks wait in Trash with a restorable
+countdown. The store persists everything and rolls the day over at 04:00. The packaging pass
+(i18n, licence, install docs) is next. Locked decisions: [docs/PLAN.md](docs/PLAN.md).
 
 ## What it does
 
-- **Today / Pending / Dashboard / Reports / Trash** — three lists that carry the whole day.
+- **Five tabs** — Today, Pending, Stats, Reports and Trash: the plan, the leftovers, the numbers,
+  the history and the mistakes, all restorable for 30 days.
 - **Progress that means something** — a per-task 0–100 % slider (100 % = done) and an
   effort-weighted daily score, so a 2-hour task counts more than three one-minute ticks.
 - **04:00 rollover with a human decision** — leftovers land in Pending with a `carried ×N`

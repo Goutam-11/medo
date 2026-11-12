@@ -645,6 +645,26 @@ eq("capture preserves word order", capture("milk buy @17:00").title, "milk buy")
 -- still "today" rather than yesterday
 eq("capture due day label next weekday", logic.due_day_label(local_ms(2026, 11, 15, 9, 0), capture_now), "Sun 09:00")
 
+-- ── trash window ────────────────────────────────────────────────────────────
+
+local day_ms = 86400000
+eq("trash fresh", logic.trash_days_left(0, 0, 30), 30)
+eq("trash three days", logic.trash_days_left(0, 3 * day_ms, 30), 27)
+eq("trash rounds up", logic.trash_days_left(0, 29.5 * day_ms, 30), 1)
+eq("trash at the window", logic.trash_days_left(0, 30 * day_ms, 30), 0)
+eq("trash past the window", logic.trash_days_left(0, 40 * day_ms, 30), 0)
+eq("trash custom retention", logic.trash_days_left(0, day_ms, 7), 6)
+eq("trash default retention", logic.trash_days_left(0, 0, nil), 30)
+
+-- the countdown and the purge must agree about the boundary: 0 days left is
+-- "goes tonight", and purge only removes an entry *past* the window
+local inside, inside_removed = logic.purge_trash({ { deleted_ms = 0, task = {} } }, 29.9 * day_ms, 30)
+eq("trash inside window kept", #inside, 1)
+eq("trash inside window removed", inside_removed, 0)
+local outside, outside_removed = logic.purge_trash({ { deleted_ms = 0, task = {} } }, 30.5 * day_ms, 30)
+eq("trash outside window kept", #outside, 0)
+eq("trash outside window removed", outside_removed, 1)
+
 -- ── summary ─────────────────────────────────────────────────────────────────
 
 print(string.format("\n%d passed, %d failed", passed, failed))
