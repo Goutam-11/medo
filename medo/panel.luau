@@ -537,7 +537,7 @@ local function footer()
       color = "on_surface_variant",
     }),
     ui.label({
-      text = "n new · j/k select · x done · p park · d delete · y confirm · 1/2 tabs",
+      text = "type to add · Enter saves · click a row to edit · n = new",
       fontSize = 10,
       color = "on_surface_variant",
     }),
@@ -642,8 +642,11 @@ function onOpen(context)
     end
   end
 
-  -- deliberately NOT focusing the add field: the panel keeps keyboard focus for
-  -- the j/k/x shortcuts, and `n` moves focus into the field when you want to type
+  -- Capture-first: the add field takes the keyboard on open, which the host
+  -- honours every time. Panel-level shortcuts (capture_keys) only arrive while
+  -- no input has focus, so they are a bonus, not the primary path.
+  add_focus = true
+  add_epoch = add_epoch + 1
   render()
 end
 

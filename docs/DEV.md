@@ -104,10 +104,17 @@ noctalia msg panel-open goutamsharma/medo:panel pending    # open the Pending ta
 noctalia msg panel-open goutamsharma/medo:panel edit:<id>  # open the editor for a task
 ```
 
-Panel shortcuts (`n j k x p d y 1 2`) are declared in `capture_keys` and arrive in
-`onKey` only while no `ui.input` has focus; a panel needs one click before it holds the
-keyboard. `wtype` cannot inject keys into a layer surface, so the shortcut path is verified
-by manifest lint plus manual use, not by automation.
+Keyboard behaviour, learned the hard way:
+
+- The panel is **capture-first**: `onOpen` focuses the add field, and typing + Enter adds a
+  task. This path is reliable because the focused input asks the host for the keyboard.
+- Panel shortcuts (`n j k x p d y 1 2`) are declared in `capture_keys` and reach `onKey`
+  only while the panel itself holds the keyboard and no `ui.input` has focus. Noctalia panels
+  take focus on demand, so this is a bonus after clicking the panel, not the primary path.
+- Verified with logs: `onKey` does receive chords (`chord=2 pressed=true`). What is *not*
+  reliable is the panel holding focus: in this session the browser repeatedly retook it, so
+  injected presses landed in the browser instead. Do not spend time "fixing" the shortcut
+  plumbing — it is wired; focus is host-owned.
 
 State lives in `~/.local/state/noctalia/plugins/data/goutamsharma/medo/`:
 `tasks.json` (live doc), `tasks.json.bak` (previous generation), `history.json` (closed days),
