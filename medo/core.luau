@@ -127,6 +127,25 @@ local function live_snapshot()
   return logic.snapshot(doc.day, doc.tasks, doc.carried_in, setting("default_estimate"))
 end
 
+-- Trash rows for the panel: newest deletion first, each with the days its
+-- restore window has left (the purge itself happens at rollover).
+local function trash_rows()
+  local rows = {}
+  for _, entry in ipairs(doc.trash or {}) do
+    local task = type(entry) == "table" and entry.task or nil
+    if type(task) == "table" then
+      local deleted_ms = tonumber(entry.deleted_ms) or 0
+      rows[#rows + 1] = {
+        task = task,
+        deleted_ms = deleted_ms,
+        days_left = logic.trash_days_left(deleted_ms, now(), setting("trash_days")),
+      }
+    end
+  end
+  table.sort(rows, function(a, b) return a.deleted_ms > b.deleted_ms end)
+  return rows
+end
+
 local function view()
   local done, total, carried, pending = counts()
   local snapshot = live_snapshot()
@@ -153,6 +172,7 @@ local function view()
     today_tasks = tasks_with("today"),
     pending_tasks = tasks_with("pending"),
     trash_count = #(doc.trash or {}),
+    trash_tasks = trash_rows(),
     all_done = everything_done(),
     celebrate_until = celebrate_until,
   }
@@ -515,6 +535,44 @@ local function edit_task(fields)
   return true
 end
 
+-- Restoring keeps the progress it had when it was thrown away and appends the
+-- task to the end of Today, so a restore never rewrites what was already planned.
+local function restore_task(id)
+  for index, entry in ipairs(doc.trash or {}) do
+    local task = type(entry) == "table" and entry.task or nil
+    if type(task) == "table" and task.id == id then
+      table.remove(doc.trash, index)
+      task.status = "today"
+      task.order = #doc.tasks + 1
+      task.updated_ms = now()
+      if logic.clamp_progress(task.progress) >= 100 and not task.completed_ms then
+        task.completed_ms = now()
+      end
+      doc.tasks[#doc.tasks + 1] = task
+      return true
+    end
+  end
+  return false
+end
+
+-- "Delete forever": no backup of a single trash row, removed from the document.
+local function purge_task(id)
+  for index, entry in ipairs(doc.trash or {}) do
+    local task = type(entry) == "table" and entry.task or nil
+    if type(task) == "table" and task.id == id then
+      table.remove(doc.trash, index)
+      return true
+    end
+  end
+  return false
+end
+
+local function empty_trash()
+  if #(doc.trash or {}) == 0 then return false end
+  doc.trash = {}
+  return true
+end
+
 local function commit(changed)
   if changed then
     sync_celebration()
@@ -565,6 +623,41 @@ local function seed_demo()
   persist()
   publish(true)
   noctalia.notify("medo", string.format("seeded %d tasks for %s", #doc.tasks, doc.day))
+end
+
+-- Three trash rows at different ages so the panel countdown and the purge
+-- boundary are visible: just deleted, three days old, and one day from purge.
+local function seed_trash()
+  doc.trash = doc.trash or {}
+  local samples = {
+    { title = "Cancel the gym trial", progress = 20, days = 0 },
+    { title = "Old blog idea", progress = 0, days = 3 },
+    { title = "Read that thread", progress = 60, days = 27 },
+  }
+  for index, sample in ipairs(samples) do
+    local task = {
+      id = logic.new_id(now(), string.format("t%03d", index)),
+      title = sample.title,
+      notes = "",
+      tag = "",
+      priority = "med",
+      estimate_min = 30,
+      due_ms = nil,
+      lead_min = 0,
+      progress = sample.progress,
+      carried = 0,
+      recurrence = nil,
+      status = "today",
+      order = index,
+      created_ms = now() - (sample.days + 2) * 86400000,
+      completed_ms = nil,
+    }
+    doc.trash[#doc.trash + 1] = { task = task, deleted_ms = now() - sample.days * 86400000 }
+  end
+  settle_celebration()
+  persist()
+  publish(true)
+  noctalia.notify("medo", string.format("seeded %d trash entries", #samples))
 end
 
 -- ── report fixture (debug) ──────────────────────────────────────────────────
@@ -726,6 +819,12 @@ local function apply_command(cmd)
     changed = set_status(cmd.id, "today")
   elseif kind == "delete" then
     changed = delete_task(cmd.id)
+  elseif kind == "restore" then
+    changed = restore_task(cmd.id)
+  elseif kind == "purge" then
+    changed = purge_task(cmd.id)
+  elseif kind == "empty-trash" then
+    changed = empty_trash()
   elseif kind == "edit" then
     changed = edit_task(cmd)
   elseif kind == "report" then
@@ -851,6 +950,26 @@ function onIpc(event, payload)
       if not commit(set_status(fields.id, status)) then
         noctalia.notifyError("medo", event .. ": unknown task or bad payload")
       end
+    end
+  elseif event == "debug-seed-trash" then
+    seed_trash()
+  elseif event == "restore" and type(payload) == "string" then
+    local ok, fields = pcall(noctalia.json.decode, payload)
+    if ok and type(fields) == "table" then
+      if not commit(restore_task(fields.id)) then
+        noctalia.notifyError("medo", "restore: unknown trash entry or bad payload")
+      end
+    end
+  elseif event == "purge" and type(payload) == "string" then
+    local ok, fields = pcall(noctalia.json.decode, payload)
+    if ok and type(fields) == "table" then
+      if not commit(purge_task(fields.id)) then
+        noctalia.notifyError("medo", "purge: unknown trash entry or bad payload")
+      end
+    end
+  elseif event == "empty-trash" then
+    if not commit(empty_trash()) then
+      noctalia.notify("medo", "trash is already empty")
     end
   elseif event == "delete" and type(payload) == "string" then
     local ok, fields = pcall(noctalia.json.decode, payload)

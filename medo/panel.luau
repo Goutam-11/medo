@@ -56,6 +56,7 @@ local function read_view()
   if type(snapshot) == "table" then view = snapshot end
   if type(view.today_tasks) ~= "table" then view.today_tasks = {} end
   if type(view.pending_tasks) ~= "table" then view.pending_tasks = {} end
+  if type(view.trash_tasks) ~= "table" then view.trash_tasks = {} end
   if type(view.cap) ~= "table" then view.cap = { enabled = true, value = 3 } end
 end
 
@@ -935,6 +936,82 @@ local function triage_body()
   return ui.column({ gap = 6 }, children)
 end
 
+-- ── trash (Phase 5a) ────────────────────────────────────────────────────────
+--
+-- Rows come from the service (`view.trash_tasks`, newest deletion first, each
+-- with the days its restore window has left). The panel only sends `restore`,
+-- `purge` and `empty-trash`; rollover is still the only automatic purge.
+
+local function trash_row(entry)
+  local task = entry.task or {}
+  local days = tonumber(entry.days_left) or 0
+  local window
+  if days <= 0 then
+    window = "purges tonight"
+  elseif days == 1 then
+    window = "purges in 1 day"
+  else
+    window = string.format("purges in %d days", days)
+  end
+  local deleted = "?"
+  if entry.deleted_ms and entry.deleted_ms > 0 then
+    deleted = os.date("%d %b", math.floor(entry.deleted_ms / 1000))
+  end
+
+  return ui.column({ gap = 6, padding = 8, radius = 10, fill = "surface_container" }, {
+    ui.row({ gap = 6, align = "center" }, {
+      ui.glyph({ name = "trash", size = 13, color = "on_surface_variant" }),
+      ui.label({ text = task.title or "untitled", fontSize = 13, flexGrow = 1, maxLines = 1 }),
+    }),
+    ui.row({ gap = 6, align = "center" }, {
+      ui.label({
+        text = string.format("deleted %s · %s", deleted, window),
+        fontSize = 10,
+        color = "on_surface_variant",
+        flexGrow = 1,
+        maxLines = 1,
+      }),
+      ui.button({
+        text = "Restore",
+        variant = "primary",
+        controlSize = "sm",
+        tooltip = "back to Today, progress kept",
+        onClick = function()
+          send("restore", { id = task.id })
+          render()
+        end,
+      }),
+      ui.button({
+        text = "Delete forever",
+        variant = "destructive",
+        controlSize = "sm",
+        tooltip = "gone for good",
+        onClick = function()
+          send("purge", { id = task.id })
+          render()
+        end,
+      }),
+    }),
+  })
+end
+
+local function trash_body()
+  local rows = view.trash_tasks or {}
+  if #rows == 0 then
+    return ui.column({ gap = 4, padding = 14, radius = 10, fill = "surface_container" }, {
+      ui.label({ text = "Nothing thrown away. Look at you.", fontSize = 12, color = "on_surface_variant" }),
+      ui.label({
+        text = "Deleted tasks wait here, restorable, until they age out.",
+        fontSize = 9,
+        color = "on_surface_variant",
+      }),
+    })
+  end
+  local children = {}
+  for _, entry in ipairs(rows) do children[#children + 1] = trash_row(entry) end
+  return ui.column({ gap = 6 }, children)
+end
+
 -- ── header, tabs, bodies, footer ────────────────────────────────────────────
 
 local function header()
@@ -968,6 +1045,9 @@ local function tab_strip()
       variant = tab == id and "secondary" or "ghost",
       selected = tab == id,
       controlSize = "sm",
+      -- five tabs at the 460 px panel width: the smaller face keeps "Pending 1"
+      -- and "Reports" whole instead of clipped (measured, not guessed)
+      fontSize = 10,
       flexGrow = 1,
       onClick = function()
         if tab ~= id then
@@ -983,8 +1063,9 @@ local function tab_strip()
   return ui.row({ gap = 4, align = "center" }, {
     tab_button("today", "Today", #(view.today_tasks or {})),
     tab_button("pending", "Pending", #(view.pending_tasks or {})),
-    tab_button("dashboard", "Dashboard"),
+    tab_button("dashboard", "Stats"),
     tab_button("reports", "Reports"),
+    tab_button("trash", "Trash", #(view.trash_tasks or {})),
   })
 end
 
@@ -1020,6 +1101,33 @@ local function footer()
         color = "on_surface_variant",
       }),
     })
+  elseif tab == "trash" then
+    local retention = tonumber(noctalia.getConfig("trash_days")) or 30
+    local children = {
+      ui.separator({}),
+      ui.label({
+        text = string.format("Trash empties itself after %d days. Restore anything you still want.", retention),
+        fontSize = 10,
+        color = "on_surface_variant",
+        maxLines = 2,
+      }),
+    }
+    if #(view.trash_tasks or {}) > 0 then
+      children[#children + 1] = ui.row({ gap = 6, align = "center" }, {
+        ui.button({
+          text = "Empty Trash",
+          variant = "ghost",
+          controlSize = "sm",
+          tooltip = "delete every trashed task forever",
+          onClick = function()
+            send("empty-trash")
+            render()
+          end,
+        }),
+        ui.spacer({ flexGrow = 1 }),
+      })
+    end
+    return ui.column({ gap = 4 }, children)
   elseif tab == "reports" then
     local exportable = has_report() and (view.report.active_days or 0) > 0
     local note = "reports are built on demand from closed days + today"
@@ -1093,6 +1201,8 @@ function render()
     body = celebration_body()
   elseif tab == "triage" then
     body = triage_body()
+  elseif tab == "trash" then
+    body = trash_body()
   elseif tab == "dashboard" then
     body = dashboard_body()
   elseif tab == "reports" then
@@ -1130,6 +1240,8 @@ function onOpen(context)
     tab = "pending"
   elseif context == "triage" then
     tab = "triage"
+  elseif context == "trash" then
+    tab = "trash"
   elseif context == "dashboard" then
     tab = "dashboard"
   elseif context == "reports" or context == "reports-monthly" then
