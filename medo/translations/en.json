@@ -10,6 +10,8 @@
   "settings.streak_threshold.description": "Daily score (0-100) needed for a day to extend the streak.",
   "settings.trash_days.label": "Trash retention",
   "settings.trash_days.description": "Days a deleted task stays restorable before rollover purges it.",
+  "settings.export_dir.label": "Report export folder",
+  "settings.export_dir.description": "Where exported Markdown and JSON reports land. Empty uses your Documents folder.",
   "settings.cap_enabled.label": "Daily soft cap",
   "settings.cap_enabled.description": "Warn when today's list grows past the cap.",
   "settings.daily_cap.label": "Cap",
