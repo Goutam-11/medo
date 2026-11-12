@@ -1,4 +1,4 @@
-# medo — design blueprint
+# medo — plan
 
 A cute, day-scoped task manager for **Noctalia v5** on niri. Planned via a 22-question
 grilling session on 2026-11-12.
@@ -432,7 +432,7 @@ medo/
 │   ├── translations/en.json
 │   └── README.md
 ├── docs/
-│   ├── DESIGN.md            this file
+│   ├── PLAN.md              this file
 │   └── DEV.md               dev source setup, IPC cheat-sheet, testing
 ├── tools/
 │   ├── gen-assets.sh        mascot rasterisation + sound synthesis
