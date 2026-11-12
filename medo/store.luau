@@ -73,7 +73,7 @@ function M.load()
 
   local backup = read_json(path .. ".bak")
   if backup and backup.schema == SCHEMA then
-    noctalia.notifyError("medo", "tasks.json was unreadable; recovered the previous copy")
+    noctalia.notifyError(noctalia.tr("plugin.name"), noctalia.tr("error.recovered"))
     return backup, nil
   end
 

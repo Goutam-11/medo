@@ -27,7 +27,7 @@ and every week tells you how you actually worked.
 | 13 | Reports | Auto **Sun 20:00** weekly + **1st 20:00** monthly, Reports tab + toast |
 | 14 | Carry-over | Keep progress %, badge how many times it was carried |
 | 15 | Repeats | Daily / selected-weekdays, recreated at rollover |
-| 16 | Keyboard | Full keyboard-first panel |
+| 16 | Keyboard | Capture-first: the add field takes focus, `Enter` saves; global shortcuts live in niri (in-panel shortcuts were removed — see §7.2) |
 | 17 | Metrics | Effort-weighted score + carryover + on-time + avg progress at close + insights |
 | 18 | Trash | Soft delete, restore anytime, auto-purge after 30 days |
 | 19 | Pending | Pending = carried tasks needing a decision + parked (someday) tasks |
@@ -312,9 +312,11 @@ planned vs completed effort, longest streak, and a "what changed" line. Export a
   row (strike, chime, moved to the done section) — dragging back below 100 un-completes.
 - **Add row**: title input (`focus` on new), estimate select (15/30/45/60/90/…), time input,
   tag select, priority cycle. Enter adds, keeps focus for the next capture.
-- **Keyboard**: `n` focus add, `/` filter, `j`/`k` move selection, `space` toggle done,
-  `1`–`5` tabs, `w`/`s` ±5 % on the selected row, `e` edit, `Delete` trash. All best-effort
-  (unavailable while an input is focused — documented in the panel footer hint).
+- **Keyboard**: capture-first only. Opening the panel focuses the add field, so typing + `Enter`
+  adds a task; everything else is the mouse. An earlier draft defined `n`/`/`/`j`/`k`/`space`/
+  `1`–`5` shortcuts — they were **removed in Phase 2**: an attached panel takes keyboard focus only
+  on demand, `capture_keys` never delivered those chords reliably, and inputs swallow printable
+  keys. Global shortcuts belong in niri (see `docs/DEV.md`); the panel footer says so.
 - **Empty states** carry the voice:
   - Today empty → `Nothing planned yet. Three is a good number to start.`
   - Pending empty → `No leftovers. Medo is pleasantly surprised.`
@@ -440,20 +442,24 @@ medo/
 │   └── README.md
 ├── docs/
 │   ├── PLAN.md              this file
-│   └── DEV.md               dev source, IPC, testing
-│   └── DEV.md               dev source setup, IPC cheat-sheet, testing
+│   ├── DEV.md               dev source setup, IPC cheat-sheet, testing
+│   └── screenshots/         one per phase, committed
+├── tests/
+│   └── logic_test.luau      headless tests for logic.luau (no host)
 ├── tools/
-│   ├── gen-assets.sh        mascot rasterisation + sound synthesis
-│   └── validate.sh          noctalia plugins lint + manifest checks
+│   ├── gen-assets.sh        font download + mascot rasterisation + sound synthesis
+│   └── check_manifest.py    manifest + translation-key validator (the `manifest` gate)
 └── .ref/                    upstream reference clones (gitignored)
 ```
 
 Pure logic in `logic.luau` is `require`-able and testable headlessly. `store.luau` owns every
 write so the on-disk format has exactly one implementation.
 
-**Noctalia plugin source** for development: add `~/personal-projects/medo/plugin` as a **path
-source** (or drop into `~/.local/share/noctalia/plugins/goutamsharma/medo/`), enable once,
-then `.luau` edits hot-reload. Writing outside the workspace needs one approval.
+**Noctalia plugin source** for development: add the **repository root** as a path source
+(`~/personal-projects/medo` — it contains `medo/`, the directory named after the id suffix), or
+copy that directory into `~/.local/share/noctalia/plugins/goutamsharma/medo/`. The path-source
+form is what this machine uses; `.luau` edits hot-reload, `plugin.toml` needs
+`noctalia msg config-reload`. Writing outside the workspace needs one approval.
 
 ---
 
@@ -464,7 +470,7 @@ then `.luau` edits hot-reload. Writing outside the workspace needs one approval.
 | A prop from a newer API is silently skipped | Implement against the **43-era stub**; run `noctalia plugins lint`; grep the shell log for skipped/invalid props each phase |
 | `ui.image` can't render SVG | Ship rasterised PNGs at 2×; keep SVG as the editable source |
 | Cross-entry `state.watch` isn't reliable for panel→service | Phase 1 fallback: `outbox.json` drained by the service each tick |
-| Panel loses keyboard shortcuts once an input gets focus | Documented hint row; `/` and `n` re-focus inputs, mouse always works |
+| Panels cannot capture global keys (verified) | Capture-first keyboard, mouse for the rest, niri binds for global shortcuts |
 | Clock jumps, suspend/resume (no `onSuspend` at 43) | Every tick recomputes the logical day and reminder windows from `nowMs()`; stale reminders expire after 60 min |
 | Corrupted or half-written JSON | Atomic tmp+rename, schema version field, `.bak` restore path, backups kept 14 rollovers |
 | Panel height jumps while dragging a slider | `max_height` + inner `ui.scroll` for long lists |
@@ -545,6 +551,17 @@ with its deletion time and remaining days; rows show the date and the countdown 
 exactly (tested from both sides). `debug-seed-trash` seeds three rows for the screenshot; the tab
 strip fits five tabs at 460 px with a 10 px face. Pure logic grew to 300 tests.
 Evidence: `docs/screenshots/phase5-trash.png`.
+
+Phase 5b complete (2026-11-12) — the packaging pass. Every user-visible string in the panel, bar,
+launcher, notifications and insights now resolves through `noctalia.tr`/`trp` from
+`translations/en.json`; the pure layer returns copy **keys** and their numbers (insight rules carry
+a `plural` count for `trp`), and `tools/check_manifest.py` fails CI when a key used in the code is
+missing from the catalogue. README rewritten for install (path source + community layout),
+features, data locations, export behaviour and requirements; version bumped to **0.2.0**; the
+licence question stays **TBD** because choosing one is the owner's decision, documented rather than
+invented. Contract drift fixed: decision 16 and §7.2 now describe the capture-first keyboard that
+shipped, §11 shows the real tree and the repo-root path source. Evidence:
+`docs/screenshots/phase{4,5}-*.png`, `make check` green.
 
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
 `docs/DEV.md`.

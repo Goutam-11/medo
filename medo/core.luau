@@ -73,7 +73,7 @@ end
 local function persist()
   local ok, err = store.save(doc)
   if not ok then
-    noctalia.notifyError("medo", "could not save tasks: " .. tostring(err))
+    noctalia.notifyError(title(), tr("error.save", { error = tostring(err) }))
   end
   return ok
 end
@@ -204,6 +204,42 @@ local function build_report(period)
   return build_report_for(period, doc.day)
 end
 
+-- ── copy ────────────────────────────────────────────────────────────────────
+--
+-- Every user-facing string comes from translations/en.json. `trp` picks the
+-- plural form and passes `count` through; the plugin name stays the brand.
+
+local function tr(key, subst, count)
+  if count then return noctalia.trp(key, count, subst) end
+  return noctalia.tr(key, subst)
+end
+
+local function title()
+  return noctalia.tr("plugin.name")
+end
+
+-- The report toasts need the report itself, so they are built here rather than
+-- in the pure layer.
+local function weekly_body()
+  local snapshot = build_report("weekly")
+  if not snapshot then return nil end
+  return tr("notify.weekly", {
+    done = snapshot.done or 0,
+    carried = snapshot.carryover or 0,
+    score = snapshot.score or 0,
+  })
+end
+
+local function monthly_body(previous_day)
+  local snapshot = build_report_for("monthly", previous_day)
+  if not snapshot then return nil end
+  return tr("notify.monthly", {
+    month = snapshot.month_label or "",
+    score = snapshot.score or 0,
+  })
+end
+
+
 -- Render the requested report and write it into export_dir. Markdown is the
 -- default (PLAN open decision 7); JSON carries the report object as-is.
 local function handle_export(period, format)
@@ -211,7 +247,7 @@ local function handle_export(period, format)
   local target_format = format == "json" and "json" or "markdown"
   local snapshot = build_report(chosen)
   if not snapshot then
-    noctalia.notifyError("medo", "export: could not build the report")
+    noctalia.notifyError(title(), tr("error.export_build"))
     return false
   end
   report = snapshot
@@ -228,21 +264,21 @@ local function handle_export(period, format)
     }, true)
   else
     payload = logic.report_markdown(snapshot,
-      os.date("%Y-%m-%d %H:%M", math.floor(now() / 1000)))
+      os.date("%Y-%m-%d %H:%M", math.floor(now() / 1000)), tr)
   end
   if not payload then
-    noctalia.notifyError("medo", "export: could not encode the report")
+    noctalia.notifyError(title(), tr("error.export_encode"))
     return false
   end
 
   local ok, err = store.write_text(path, payload)
   if not ok then
-    noctalia.notifyError("medo", "export failed: " .. tostring(err))
+    noctalia.notifyError(title(), tr("error.export_write", { error = tostring(err) }))
     return false
   end
   last_export = { path = path, format = target_format, period = chosen, ms = now() }
   noctalia.log("medo: exported " .. path)
-  noctalia.notify("medo", "exported " .. path)
+  noctalia.notify(title(), tr("toast.exported", { path = path }))
   publish(true)
   return true
 end
@@ -332,17 +368,18 @@ local function deliver_notifications()
 
   local changed = false
   for _, entry in ipairs(entries) do
-    local body = entry.body
+    local body
     if entry.kind == "weekly" then
-      body = logic.weekly_notice(build_report("weekly"))
+      body = weekly_body()
     elseif entry.kind == "monthly" then
       -- the 1st at 20:00 reviews the month that just ended
       local ordinal = logic.to_ordinal(doc.day)
-      local previous = ordinal and logic.from_ordinal(ordinal - 1) or doc.day
-      body = logic.monthly_notice(build_report_for("monthly", previous))
+      body = monthly_body(ordinal and logic.from_ordinal(ordinal - 1) or doc.day)
+    else
+      body = tr(entry.body_key, entry.subst)
     end
     if body then
-      noctalia.notify(entry.title or "medo", body)
+      noctalia.notify(title(), body)
       noctalia.log("medo: notify " .. tostring(entry.key) .. " :: " .. body)
     end
     state.notified[entry.key] = now_ms
@@ -360,19 +397,24 @@ local function debug_notify(kind)
   local context = notification_context()
   local body
   if kind == "morning" then
-    body = logic.morning_notice(context.today_count, context.carried_count)
+    if context.today_count == 0 then
+      body = tr("notify.morning.empty")
+    else
+      body = tr("notify.morning",
+        { planned = context.today_count, carried = context.carried_count })
+    end
   elseif kind == "evening" then
-    body = logic.evening_notice(context.open_count)
+    body = tr("notify.evening", { count = context.open_count })
   elseif kind == "atrisk" then
-    body = logic.atrisk_notice()
+    body = tr("notify.atrisk")
   elseif kind == "weekly" then
-    body = logic.weekly_notice(build_report("weekly"))
+    body = weekly_body()
   elseif kind == "monthly" then
     -- the debug preview always reviews the previous calendar month, matching
     -- the 1st-at-20:00 schedule even when previewed mid-month
     local start = logic.month_start_day(doc.day)
     local previous = start and logic.from_ordinal(logic.to_ordinal(start) - 1) or doc.day
-    body = logic.monthly_notice(build_report_for("monthly", previous))
+    body = monthly_body(previous)
   else
     local task
     for _, candidate in ipairs(doc.tasks) do
@@ -382,14 +424,16 @@ local function debug_notify(kind)
       end
     end
     if task and kind == "due" then
-      body = logic.due_notice(task.title, logic.clamp_progress(task.progress))
+      body = tr("notify.due", { title = task.title, progress = logic.clamp_progress(task.progress) })
     elseif task and kind == "lead" then
-      body = logic.lead_notice(math.max(1, math.floor((task.due_ms - now()) / 60000 + 0.5)),
-        task.title)
+      body = tr("notify.lead", {
+        minutes = math.max(1, math.floor((task.due_ms - now()) / 60000 + 0.5)),
+        title = task.title,
+      })
     end
   end
   if body then
-    noctalia.notify("medo", body)
+    noctalia.notify(title(), body)
     noctalia.log("medo: debug notify " .. tostring(kind) .. " :: " .. body)
   else
     noctalia.notifyError("medo", "debug-notify: nothing to show for " .. tostring(kind))
@@ -752,7 +796,7 @@ local function boot()
     doc = loaded
   else
     if err == "corrupt" then
-      noctalia.notifyError("medo", "tasks.json is unreadable and no backup recovered it; starting a fresh list")
+      noctalia.notifyError(title(), tr("error.corrupt_doc"))
     end
     doc = logic.default_doc(today(), setting("rollover_hour"))
     persist()

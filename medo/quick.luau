@@ -11,7 +11,7 @@ local logic = require("./logic.luau")
 
 local seq = 0
 
-local ROOT_HINT = "buy milk @17:00 #errand !high"
+
 
 local function now_ms()
   return noctalia.nowMs()
@@ -46,10 +46,14 @@ local function capture_id(query)
   return "capture:" .. query
 end
 
+local function tr(key, subst)
+  return noctalia.tr(key, subst)
+end
+
 local function caption(parsed)
   local preview = logic.capture_preview(parsed)
   if preview ~= "" then return preview end
-  return "today's list"
+  return tr("launcher.subtitle.none")
 end
 
 function onQuery(text)
@@ -59,8 +63,8 @@ function onQuery(text)
     launcher.setResults(query, {
       {
         id = "hint",
-        title = "medo " .. ROOT_HINT,
-        subtitle = "type a task — the tokens become the due, tag and priority",
+        title = tr("launcher.hint.title"),
+        subtitle = tr("launcher.hint.subtitle"),
         glyph = "checklist",
       },
     })
@@ -70,8 +74,8 @@ function onQuery(text)
     launcher.setResults(query, {
       {
         id = "hint",
-        title = "Give it a title",
-        subtitle = "tokens alone do not make a task",
+        title = tr("launcher.untitled.title"),
+        subtitle = tr("launcher.untitled.subtitle"),
         glyph = "info-circle",
       },
     })
@@ -94,7 +98,7 @@ function onActivate(id)
   if parsed.title == "" then return end
 
   send_add(parsed)
-  noctalia.notify("medo", string.format('Sold. "%s" is on today\'s list.', parsed.title))
+  noctalia.notify(tr("plugin.name"), tr("launcher.toast", { title = parsed.title }))
   -- "" resets the launcher input to its root; the launcher stays open
   launcher.setQuery("")
 end
