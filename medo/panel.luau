@@ -19,7 +19,7 @@ local function header(view)
     ui.column({ flexGrow = 1, gap = 2 }, {
       ui.label({ text = "medo", fontSize = 16, fontWeight = "bold" }),
       ui.label({
-        text = (view.day ~= "" and view.day or "…") .. " · scaffold",
+        text = (view.day ~= "" and view.day or "…") .. " · " .. tostring(view.total) .. " planned",
         fontSize = 11,
         color = "on_surface_variant",
       }),
@@ -35,26 +35,31 @@ local function header(view)
   })
 end
 
+local function stat(name, value, color)
+  return ui.column({ gap = 2, flexGrow = 1 }, {
+    ui.label({ text = tostring(value), fontSize = 20, fontWeight = "bold", color = color or "primary" }),
+    ui.label({ text = name, fontSize = 10, color = "on_surface_variant" }),
+  })
+end
+
 local function body(view)
   return ui.column({ gap = 10, padding = 12, fill = "surface_container", radius = 12 }, {
-    ui.label({
-      text = "Phase 0: the shell is wired. Next up is the store, then today's list.",
-      fontSize = 12,
-      color = "on_surface_variant",
-    }),
-    ui.row({ gap = 8, align = "center" }, {
-      ui.glyph({ name = "checks", size = 16, color = "primary" }),
-      ui.label({
-        text = string.format("%d of %d done · %d carried", view.done, view.total, view.carried),
-        fontSize = 12,
-      }),
+    ui.row({ gap = 10, align = "center" }, {
+      stat("done", string.format("%d/%d", view.done, view.total)),
+      stat("score", string.format("%d%%", view.score)),
+      stat("carried", view.carried, "tertiary"),
+      stat("streak", view.streak, "secondary"),
     }),
     ui.separator({}),
     ui.label({
-      text = "Try: noctalia msg plugin goutamsharma/medo:core all ping",
+      text = "The store is live: tasks survive reloads, and the day closes at the rollover hour.",
+      fontSize = 12,
+      color = "on_surface_variant",
+    }),
+    ui.label({
+      text = "Tabs and the progress slider arrive in phase 2.",
       fontSize = 11,
       color = "on_surface_variant",
-      maxLines = 2,
     }),
   })
 end

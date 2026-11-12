@@ -80,12 +80,27 @@ The bar geometry on this machine is 1768x48 in the log; adjust to the current ou
 
 ## Testing without waiting for time to pass
 
-Phase 1 adds `debug-*` IPC commands to the service (seed a fixture, force a rollover, jump the
-logical day). They are the only way to test the 04:00 boundary without changing the clock:
+The service exposes test seams over IPC so the day boundary can be exercised without touching
+the clock:
 
 ```bash
-noctalia msg plugin goutamsharma/medo:core all debug-seed-demo
-noctalia msg plugin goutamsharma/medo:core all debug-rollover
+noctalia msg plugin goutamsharma/medo:core all debug-seed-demo      # 3 today + 1 carried fixture
+noctalia msg plugin goutamsharma/medo:core all debug-dump           # path + counts + streak
+noctalia msg plugin goutamsharma/medo:core all debug-rollover       # close today, carry into tomorrow
+noctalia msg plugin goutamsharma/medo:core all debug-backdate 2026-11-09  # lie about the day; restart to test catch-up
+noctalia msg plugin goutamsharma/medo:core all debug-reset          # empty list for today
+noctalia msg plugin goutamsharma/medo:core all add '{"title":"buy milk","estimate_min":15}'
+noctalia msg plugin goutamsharma/medo:core all progress '{"id":"t_…","progress":60}'
+```
+
+State lives in `~/.local/state/noctalia/plugins/data/goutamsharma/medo/`:
+`tasks.json` (live doc), `tasks.json.bak` (previous generation), `history.json` (closed days),
+`backups/tasks-<day>.json` (last 14 rollovers). Delete the directory to start over.
+
+Unit tests are plain Luau and run under `TZ=UTC` so date expectations hold anywhere:
+
+```bash
+make test        # TZ=UTC .tools/luau tests/logic_test.luau
 ```
 
 ## Files

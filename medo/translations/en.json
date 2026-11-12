@@ -1,5 +1,13 @@
 {
   "plugin.name": "medo",
   "settings.glyph.label": "Glyph",
-  "settings.glyph.description": "Icon shown on the bar beside today's count."
+  "settings.glyph.description": "Icon shown on the bar beside today's count.",
+  "settings.rollover_hour.label": "Day rollover hour",
+  "settings.rollover_hour.description": "Hour (0-23) when today ends. 4 keeps late-night work on the previous day.",
+  "settings.default_estimate.label": "Default estimate",
+  "settings.default_estimate.description": "Minutes a task is worth when it has no estimate of its own.",
+  "settings.streak_threshold.label": "Streak threshold",
+  "settings.streak_threshold.description": "Daily score (0-100) needed for a day to extend the streak.",
+  "settings.trash_days.label": "Trash retention",
+  "settings.trash_days.description": "Days a deleted task stays restorable before rollover purges it."
 }

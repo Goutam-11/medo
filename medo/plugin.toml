@@ -15,6 +15,43 @@ icon = "checklist"
 description = "A cute day-scoped task manager: progress sliders, a 04:00 rollover that carries leftovers, and weekly efficiency reports."
 tags = ["bar", "panel", "service", "productivity"]
 
+# Plugin-level settings, shared by every entry (Settings -> Plugins -> medo).
+[[setting]]
+key = "rollover_hour"
+type = "int"
+min = 0
+max = 23
+label_key = "settings.rollover_hour.label"
+description_key = "settings.rollover_hour.description"
+default = 4
+
+[[setting]]
+key = "default_estimate"
+type = "int"
+min = 5
+max = 480
+label_key = "settings.default_estimate.label"
+description_key = "settings.default_estimate.description"
+default = 20
+
+[[setting]]
+key = "streak_threshold"
+type = "int"
+min = 0
+max = 100
+label_key = "settings.streak_threshold.label"
+description_key = "settings.streak_threshold.description"
+default = 70
+
+[[setting]]
+key = "trash_days"
+type = "int"
+min = 1
+max = 365
+label_key = "settings.trash_days.label"
+description_key = "settings.trash_days.description"
+default = 30
+
 # Headless core: owns tasks.json, the logical day, rollover, reminders and
 # reports. Every other entry talks to it through noctalia.state.
 [[service]]

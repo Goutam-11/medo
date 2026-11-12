@@ -21,7 +21,7 @@ luau: tools
 
 test: tools
 	@if [ -f tests/logic_test.luau ]; then \
-		$(LUAU) tests/logic_test.luau; \
+		TZ=UTC $(LUAU) tests/logic_test.luau; \
 	else \
 		echo "no tests yet"; \
 	fi
