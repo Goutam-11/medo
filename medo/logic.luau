@@ -95,6 +95,24 @@ function M.shift_due(due_ms, from_day, to_day)
   return math.floor(due_ms + delta * 86400000)
 end
 
+-- Parse "HH:MM" (or "H:MM") into the next occurrence of that local wall clock
+-- from now_ms. Returns nil when the text is not a time. Wall-clock maths avoids
+-- constructing an epoch from date parts (the Luau CLI treats os.time tables as
+-- UTC, which would be wrong here).
+function M.due_from_clock(text, now_ms)
+  local hours, minutes = tostring(text or ""):match("^(%d%d?):(%d%d)$")
+  if not hours then return nil end
+  hours, minutes = tonumber(hours), tonumber(minutes)
+  if hours > 23 or minutes > 59 then return nil end
+
+  local seconds = math.floor((tonumber(now_ms) or 0) / 1000)
+  local now_h = tonumber(os.date("%H", seconds)) or 0
+  local now_m = tonumber(os.date("%M", seconds)) or 0
+  local delta = (hours * 60 + minutes) - (now_h * 60 + now_m)
+  if delta < 0 then delta = delta + 1440 end
+  return math.floor(seconds + delta * 60) * 1000
+end
+
 -- ── weights, score, snapshot ────────────────────────────────────────────────
 
 function M.priority_mult(priority)

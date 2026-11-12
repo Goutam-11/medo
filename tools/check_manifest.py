@@ -199,6 +199,21 @@ def check_entries(manifest: dict, translations: dict[str, str]) -> None:
                 elif not isinstance(height, int) or height <= 0:
                     error(f"{where} ('{entry_id}'): panel needs a positive integer 'height' or \"content\"")
 
+            if kind == "panel":
+                keyboard = entry.get("keyboard_focus")
+                if keyboard is not None and keyboard not in ("on_demand", "exclusive", "none"):
+                    error(f"{where} ('{entry_id}'): keyboard_focus must be on_demand, exclusive or none")
+                keys = entry.get("capture_keys")
+                if keys is not None:
+                    if not isinstance(keys, list) or not keys:
+                        error(f"{where} ('{entry_id}'): capture_keys must be a non-empty array")
+                    elif not all(isinstance(key, str) and key for key in keys):
+                        error(f"{where} ('{entry_id}'): capture_keys entries must be non-empty strings")
+                    elif len(set(keys)) != len(keys):
+                        error(f"{where} ('{entry_id}'): capture_keys contains duplicates")
+                    elif path.is_file() and "function onKey" not in path.read_text(encoding="utf-8"):
+                        error(f"{where} ('{entry_id}'): declares capture_keys but defines no onKey")
+
             if "setting" in entry:
                 check_settings(f"{where} ('{entry_id}')", entry["setting"], translations)
 

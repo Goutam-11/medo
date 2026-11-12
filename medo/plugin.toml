@@ -26,6 +26,22 @@ description_key = "settings.rollover_hour.description"
 default = 4
 
 [[setting]]
+key = "cap_enabled"
+type = "bool"
+label_key = "settings.cap_enabled.label"
+description_key = "settings.cap_enabled.description"
+default = true
+
+[[setting]]
+key = "daily_cap"
+type = "int"
+min = 1
+max = 10
+label_key = "settings.daily_cap.label"
+description_key = "settings.daily_cap.description"
+default = 3
+
+[[setting]]
 key = "default_estimate"
 type = "int"
 min = 5
@@ -80,3 +96,9 @@ max_height = 760
 placement = "attached"
 position = "auto"
 open_near_click = true
+# printable keys arrive here only while no ui.input has focus (return/escape stay
+# with the host); the panel footer documents them.
+capture_keys = ["n", "j", "k", "x", "p", "d", "y", "1", "2"]
+# take the keyboard while open: the panel is a capture surface, and this is what
+# makes the capture_keys shortcuts reliably reach onKey
+keyboard_focus = "exclusive"
