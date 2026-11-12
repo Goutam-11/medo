@@ -389,7 +389,7 @@ medo buy milk @17:00 #errand !high
 | `quiet_start` / `quiet_end` | string | 22:00 / 07:00 | suppress non-due notifications |
 | `sounds_enabled` | bool | true | chime/jingle/thud |
 | `mascot_enabled` | bool | true | hide the blob if you want quiet |
-| `export_dir` | folder | `$XDG_DOCUMENTS_DIR` | report/backup exports |
+| `export_dir` | folder | `$XDG_DOCUMENTS_DIR` (else `~/Documents`) | report/backup exports |
 | `trash_days` | int 1–365 | 30 | auto-purge window |
 
 Widget settings: `glyph` (default `checklist`), `show_count`, `show_mascot_dot`.
@@ -493,6 +493,17 @@ delete to Trash and the soft-cap prompt. The panel talks to the service only thr
 removed because panels only take keyboard focus on demand and inputs swallow printable keys —
 global shortcuts belong in niri instead.
 Evidence: `docs/screenshots/phase2-{today,pending,editor}.png`.
+
+Phase 3 complete (2026-11-12) — Dashboard and Reports ship. The dashboard has a large score
+card (a `ui.progress` with a `marker` at the streak target — Noctalia has no ring primitive), the
+streak, next-due task with countdown, carried-in count, a 7-day `ui.graph` sparkline and a mascot
+line in four score bands. Reports switch weekly/monthly, aggregate `history.json` plus the live day
+(effort-weighted score, carryover, on-time, average progress at close, best/worst day, tag split)
+and render deterministic insights; the per-day chart prints the exact score under each point
+because the 5.4.1 `ui.graph` smooths its samples. Export writes `medo-<period>-<end>.md|json` into
+`export_dir`. Pure logic grew to 174 unit tests (from 56), including a hand-computed two-period
+fixture with exact insight copy.
+Evidence: `docs/screenshots/phase3-{dashboard,reports-weekly,reports-monthly,reports-empty}.png`.
 
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
 `docs/DEV.md`.

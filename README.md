@@ -5,10 +5,12 @@ A cute, day-scoped task manager for **Noctalia v5** on niri.
 > The day closes itself: carry-overs are deliberate, progress is honest, and every week
 > tells you how you actually worked.
 
-**Status:** Phase 2 — Today and Pending are usable: capture with estimate/time/tag, inline
-percent sliders, inline editing, park/promote, soft cap, keyboard shortcuts. The store from
-Phase 1 persists everything and rolls the day over at 04:00. Dashboard, Reports, Trash and
-notifications are next. Locked decisions: [docs/PLAN.md](docs/PLAN.md).
+**Status:** Phase 3 — Today, Pending, Dashboard and Reports are usable. Capture with
+estimate/time/tag, inline percent sliders, editing, park/promote and the soft cap; a live
+dashboard (score with target marker, streak, next due, carried-in, 7-day sparkline); and
+weekly/monthly reports with deterministic insights and Markdown/JSON export. The store persists
+everything and rolls the day over at 04:00. Trash and notifications are next. Locked decisions:
+[docs/PLAN.md](docs/PLAN.md).
 
 ## What it does
 
