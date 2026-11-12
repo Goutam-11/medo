@@ -114,6 +114,7 @@ noctalia msg panel-open goutamsharma/medo:panel edit:<id>        # open the edit
 noctalia msg panel-open goutamsharma/medo:panel dashboard        # score, streak, next due, sparkline
 noctalia msg panel-open goutamsharma/medo:panel reports          # weekly report (requests it)
 noctalia msg panel-open goutamsharma/medo:panel reports-monthly  # monthly report
+noctalia msg panel-open goutamsharma/medo:panel triage           # the 21:00 decision card
 noctalia msg panel-open launcher "/medo buy milk @17:00 #errand !high"   # launcher capture
 ```
 
@@ -239,6 +240,44 @@ result; there is no pointer injection on this machine, so a click on the row is 
 Activation toasts `Sold. "buy milk" is on today's list.` and calls `launcher.setQuery("")`, which
 resets the input to the provider root (`/medo`) instead of closing the launcher.
 
+## Assets, sound and the celebration (Phase 4c)
+
+```
+medo/assets/
+├── fonts/Baloo2-SemiBold.ttf  + OFL.txt   SIL OFL 1.1, static weight 600 instance
+├── mascot/{sleepy,focused,proud,worried}.svg   hand-written source, 64-unit viewBox
+├── mascot/{sleepy,focused,proud,worried}.png   rasterised at 128 px (2×)
+└── sounds/{chime,jingle,thud}.ogg              0.50 s / 0.74 s / 0.28 s, synthesised
+```
+
+`./tools/gen-assets.sh` rebuilds everything from those sources (needs `curl`, `ffmpeg` with
+libvorbis, and ImageMagick with an SVG delegate); `--all` forces a fresh font download. The PNGs
+and OGGs are committed so a clone ships complete — only the SVGs are hand-edited.
+
+- **Font** — `noctalia.loadFont("assets/fonts/Baloo2-SemiBold.ttf")` returns the family **`Baloo 2`**
+  (not the file name). The panel uses it for the title, the big numbers and the celebration copy;
+  `fontFamily = nil` silently falls back to the shell font, so a missing file is not an error.
+- **Mascot** — `ui.image` takes the plugin-relative path. The panel checks `noctalia.fileExists`
+  once per file and falls back to the text face when `mascot_enabled = false` or the PNG is
+  missing. `logic.mascot_face(mood, carried)` picks one of the four: proud for 70 %+ and for the
+  celebration, focused for 25–69 %, worried when a slow day has carried leftovers, sleepy otherwise.
+- **Sound** — names are scoped to **one entry runtime**, so the service loads and plays the cues;
+  a panel could not play a name it did not load itself. A task reaching 100 % plays the chime, the
+  task that finishes the list plays the jingle *instead* (never both), delete plays the thud, and
+  `sounds_enabled = false` skips playback (the files still load). Proof:
+  `grep 'sound "jingle"' ~/.cache/noctalia/noctalia.log`.
+- **Celebration** — the first state where every task is done stamps `view.celebrate_until`
+  (now + 8 s). The service clears the stamp on its next tick and republishes, which is what
+  dismisses the card on every open surface; the panel also asks for one-second ticks while the
+  card is up, but a panel tick is not guaranteed on 5.4.1 (measured: `setWantsSecondTicks` alone
+  did not drive `update()`). There are no animations at API 43, so it is a static card.
+  `debug-complete-all` is the seam for the screenshot; a click cannot be injected here, so
+  "Back to the list" was verified by code path only.
+- **Triage** — `panel-open … triage` renders unfinished Today + Pending with Retry (promote to
+  Today), Park (Pending) and Drop (Trash). Notifications carry no action buttons, so the 21:00
+  toast is the doorbell: the card is a context, meant to be opened from a niri bind such as
+  `Mod+Alt+T`.
+
 ## Files
 
 | File | Runs | Notes |
@@ -249,4 +288,5 @@ resets the input to the provider root (`/medo`) instead of closing the launcher.
 | `medo/bar.luau` | bar widget | renders `noctalia.state` view; click opens the panel |
 | `medo/panel.luau` | panel | Today / Pending / Dashboard / Reports (Trash in Phase 5) |
 | `medo/quick.luau` | launcher | `medo …` capture: previews the parsed fields and sends `add` |
+| `medo/assets/` | — | bundled font, mascot PNGs and sound cues (see `tools/gen-assets.sh`) |
 | `medo/translations/en.json` | — | settings labels (`label_key` must resolve here) |
