@@ -5,7 +5,7 @@ A cute, day-scoped task manager for **Noctalia v5** on niri.
 > The day closes itself: carry-overs are deliberate, progress is honest, and every week
 > tells you how you actually worked.
 
-**Status:** planning — the blueprint is locked in [docs/DESIGN.md](docs/DESIGN.md).
+**Status:** planning — the blueprint is locked in [docs/PLAN.md](docs/PLAN.md).
 Implementation starts with Phase 0 (scaffold + dev install).
 
 ## What it does
@@ -26,7 +26,7 @@ Implementation starts with Phase 0 (scaffold + dev install).
 
 ```
 plugin/     the Noctalia plugin (Luau): manifest, service, panel, bar widget, launcher provider
-docs/       DESIGN.md (blueprint) · DEV.md (dev source + testing, arrives with Phase 0)
+docs/       PLAN.md (locked decisions + build plan) · DEV.md (dev source + testing, arrives with Phase 0)
 tools/      asset generation (mascot, sounds) and validation
 ```
 
