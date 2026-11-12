@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Manifest and translations
+        run: make manifest
+
+      - name: Fetch Luau
+        run: make tools
+
+      - name: Compile every entry
+        run: make luau
+
+      - name: Unit tests
+        run: make test

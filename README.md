@@ -30,6 +30,16 @@ docs/       PLAN.md (locked decisions + build plan) · DEV.md (dev source, IPC, 
 tools/      asset generation (mascot, sounds) and validation
 ```
 
+## Development
+
+```bash
+make check     # manifest + translations + Luau compile + unit tests (same gate CI runs)
+make tools     # fetches the pinned Luau toolchain into .tools/
+make lint      # noctalia plugins lint (needs the running shell)
+```
+
+CI (`.github/workflows/ci.yml`) runs `make check` on every pull request and on `main`.
+
 ## Requirements
 
 - Noctalia **5.4.1+** — medo targets `plugin_api = 43`

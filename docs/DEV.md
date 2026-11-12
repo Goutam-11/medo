@@ -33,6 +33,18 @@ cannot enable 'goutamsharma/medo': parse error: File could not be opened for rea
 
 That message is a path-resolution failure, not a syntax error — no Lua error is involved.
 
+## Gates
+
+```bash
+make check     # manifest + translations + Luau compile + tests; exactly what CI runs
+make tools     # only: fetch Luau 0.746 into .tools/
+make lint      # noctalia plugins lint (needs the shell)
+```
+
+`tools/check_manifest.py` enforces the rules CI cares about: id shape, semver, `plugin_api`
+ceiling, entry files that exist and are non-empty, settable types, panel sizing, and that every
+`label_key`/`description_key` resolves in `translations/en.json`.
+
 ## Dev loop
 
 - Edit any `.luau` file → the shell hot-reloads that entry (watchers are logged).
