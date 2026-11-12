@@ -271,14 +271,17 @@ eq("weekly top tag share", weekly.by_tag[1].share, 58)
 eq("weekly live day marked", weekly.days[4].live, true)
 
 eq("weekly insight count", #weekly.insights, 4)
-eq("weekly insight carryover", weekly.insights[1].text,
-  "You carried 7 of 12 tasks. Your plan was ~1 task too ambitious — cap it at 3.")
-eq("weekly insight streak", weekly.insights[2].text,
-  "Monday broke a 2-day streak at 2 tasks left.")
-eq("weekly insight due", weekly.insights[3].text,
-  "Tasks with a due time finish 50% more often. Give the big ones a time.")
-eq("weekly insight weekday", weekly.insights[4].text,
-  "Tuesdays are your power day. Schedule the scary task there.")
+eq("weekly insight carryover key", weekly.insights[1].key, "insight.carryover")
+eq("weekly insight carryover plural", weekly.insights[1].plural, 1)
+eq("weekly insight carryover numbers", weekly.insights[1].subst.carried, 7)
+eq("weekly insight carryover cap", weekly.insights[1].subst.cap, 3)
+eq("weekly insight streak key", weekly.insights[2].key, "insight.streak")
+eq("weekly insight streak plural", weekly.insights[2].plural, 2)
+eq("weekly insight streak weekday", weekly.insights[2].subst.weekday, "Monday")
+eq("weekly insight due key", weekly.insights[3].key, "insight.due")
+eq("weekly insight due lift", weekly.insights[3].subst.lift, 50)
+eq("weekly insight weekday key", weekly.insights[4].key, "insight.weekday")
+eq("weekly insight weekday name", weekly.insights[4].subst.weekday, "Tuesday")
 
 local capped = logic.report(report_history, report_live, "weekly", "2026-11-12", { limit = 2 })
 eq("insight limit count", #capped.insights, 2)
@@ -306,8 +309,8 @@ eq("monthly no earlier month", monthly.trend, nil)
 eq("monthly chart length", #monthly.chart, 12)
 eq("monthly chart first", monthly.chart[1], 0)
 eq("monthly chart last", monthly.chart[12], 0.67)
-eq("monthly insight avg progress", monthly.insights[4].text,
-  "You stop at ~58% a lot — those tasks are too big. Split anything over 45 min.")
+eq("monthly insight avg progress key", monthly.insights[4].key, "insight.avg_progress")
+eq("monthly insight avg progress number", monthly.insights[4].subst.progress, 58)
 
 -- ── reports: empty range, steady rule, markdown ─────────────────────────────
 
@@ -317,10 +320,10 @@ eq("empty report assigned", empty_week.assigned, 0)
 eq("empty report active days", empty_week.active_days, 0)
 eq("empty report icon", #empty_week.insights, 1)
 eq("empty report steady", empty_week.insights[1].id, "steady")
-eq("empty report copy", empty_week.insights[1].text,
-  "A steady week. Nothing to improve — suspiciously good.")
-eq("empty monthly copy", logic.report({}, empty_live, "monthly", "2026-11-12", {}).insights[1].text,
-  "A steady month. Nothing to improve — suspiciously good.")
+eq("empty report key", empty_week.insights[1].key, "insight.steady.week")
+eq("empty monthly key",
+  logic.report({}, empty_live, "monthly", "2026-11-12", {}).insights[1].key,
+  "insight.steady.monthly")
 eq("report rejects unknown period", logic.report({}, empty_live, "yearly", "2026-11-12", {}), nil)
 
 local calm_days = {}
@@ -344,7 +347,14 @@ eq("markdown score row", markdown:find("| Score | 50% |", 1, true) ~= nil, true)
 eq("markdown carried row", markdown:find("| Carried over | 7 (58%) |", 1, true) ~= nil, true)
 eq("markdown best row", markdown:find("| Best day | Tue 10 Nov (100%) |", 1, true) ~= nil, true)
 eq("markdown tag", markdown:find("- #work: 7 (58%)", 1, true) ~= nil, true)
-eq("markdown insight", markdown:find("You carried 7 of 12 tasks.", 1, true) ~= nil, true)
+eq("markdown insight key without a translator", markdown:find("- insight.carryover", 1, true) ~= nil, true)
+-- the service passes noctalia.tr, so the export gets the real copy
+local translated = logic.report_markdown(weekly, "2026-11-12 09:00",
+  function(key, subst, count)
+    if count then return string.format("%s(%d|%s)", key, count, tostring(subst.carried)) end
+    return key
+  end)
+eq("markdown insight translated", translated:find("- insight.carryover(1|7)", 1, true) ~= nil, true)
 eq("markdown day table", markdown:find("| Mon 9 Nov | 50% | 2 / 4 |", 1, true) ~= nil, true)
 
 -- ── aggregate helper ────────────────────────────────────────────────────────
@@ -386,6 +396,41 @@ eq("mascot proud edge", logic.mascot_state(99), "proud")
 eq("mascot celebrating", logic.mascot_state(100), "celebrating")
 eq("mascot clamps high", logic.mascot_state(120), "celebrating")
 eq("mascot handles nil", logic.mascot_state(nil), "sleepy")
+
+-- mascot_face maps the mood to one of the four bundled PNGs
+eq("face sleepy", logic.mascot_face("sleepy", 0), "sleepy")
+eq("face sleepy with carried", logic.mascot_face("sleepy", 2), "worried")
+eq("face focused ignores carried", logic.mascot_face("focused", 3), "focused")
+eq("face proud", logic.mascot_face("proud", 0), "proud")
+eq("face celebrating uses proud art", logic.mascot_face("celebrating", 0), "proud")
+
+-- celebration eligibility + PLAN §3.5 copy
+local party = logic.celebration(4, 4)
+eq("celebration eligible", party.eligible, true)
+eq("celebration headline key", party.headline_key, "celebration.headline")
+eq("celebration line key", party.line_key, "celebration.line")
+eq("celebration line numbers", party.subst.done .. "/" .. party.subst.total, "4/4")
+eq("celebration partial", logic.celebration(3, 4).eligible, false)
+eq("celebration empty day", logic.celebration(0, 0).eligible, false)
+eq("celebration clamps", logic.celebration(5, 4).eligible, true)
+
+-- triage summary counts unfinished Today and Pending rows
+local triage_list = {
+  { id = "a", status = "today", progress = 0 },
+  { id = "b", status = "today", progress = 100 },
+  { id = "c", status = "pending", progress = 30 },
+  { id = "d", status = "pending", progress = 0 },
+}
+local triage = logic.triage_summary(triage_list)
+eq("triage open", triage.open, 1)
+eq("triage pending", triage.pending, 2)
+eq("triage copy key", triage.copy_key, "triage.copy.open")
+eq("triage copy count", triage.subst.count, 1)
+eq("triage copy idle", logic.triage_summary({ { status = "today", progress = 100 } }).copy_key,
+  "triage.copy.done")
+eq("triage copy waiting", logic.triage_summary({ { status = "pending", progress = 0 } }).copy_key,
+  "triage.copy.pending")
+eq("triage empty", logic.triage_summary({}).copy_key, "triage.copy.done")
 
 -- ── notifications ───────────────────────────────────────────────────────────
 
@@ -446,7 +491,9 @@ end
 local morning = logic.notifications(at(8, 0), "2026-11-12", notify_tasks, notify_context,
   notify_settings(), {})
 eq("morning fires in window", only_kind(morning, "morning"), true)
-eq("morning copy", morning[1].body, "Morning. 2 planned, 1 carried. Medo is ready.")
+eq("morning body key", morning[1].body_key, "notify.morning")
+eq("morning planned", morning[1].subst.planned, 2)
+eq("morning carried", morning[1].subst.carried, 1)
 eq("morning key", morning[1].key, "morning:2026-11-12")
 eq("morning at minute 59", only_kind(logic.notifications(at(8, 59), "2026-11-12",
   notify_tasks, notify_context, notify_settings(), {}), "morning"), true)
@@ -458,12 +505,12 @@ eq("morning disabled", #logic.notifications(at(8, 0), "2026-11-12",
   notify_tasks, notify_context, notify_settings({ notify = { morning = false } }), {}), 0)
 eq("morning empty day", logic.notifications(at(8, 0), "2026-11-12", {},
   { today_count = 0, open_count = 0, carried_count = 0, score = 0 },
-  notify_settings(), {})[1].body, "Morning. Nothing planned yet. Three is a good start.")
+  notify_settings(), {})[1].body_key, "notify.morning.empty")
 
 local at_risk = logic.notifications(at(15, 0), "2026-11-12", {},
   { today_count = 2, open_count = 1, carried_count = 0, score = 20 }, notify_settings(), {})
 eq("at risk fires below 30", only_kind(at_risk, "atrisk"), true)
-eq("at risk copy", at_risk[1].body, "Half the day gone, nothing moved. Still fine.")
+eq("at risk key", at_risk[1].body_key, "notify.atrisk")
 eq("at risk above threshold", #logic.notifications(at(15, 0), "2026-11-12", {},
   { today_count = 2, open_count = 1, carried_count = 0, score = 40 }, notify_settings(), {}), 0)
 eq("at risk needs open work", #logic.notifications(at(15, 0), "2026-11-12", {},
@@ -472,7 +519,8 @@ eq("at risk needs open work", #logic.notifications(at(15, 0), "2026-11-12", {},
 local evening = logic.notifications(at(21, 0), "2026-11-12", {},
   { today_count = 3, open_count = 2, carried_count = 0, score = 40 }, notify_settings(), {})
 eq("evening fires", only_kind(evening, "evening"), true)
-eq("evening copy", evening[1].body, "2 left. Retry, park or drop?")
+eq("evening key", evening[1].body_key, "notify.evening")
+eq("evening count", evening[1].subst.count, 2)
 eq("evening quiet hours", #logic.notifications(at(22, 30), "2026-11-12", {},
   { today_count = 3, open_count = 2, carried_count = 0, score = 40 },
   notify_settings({ evening_time = "22:00" }), {}), 0)
@@ -499,7 +547,9 @@ eq("monthly off day", #logic.notifications(at(20, 0, 2), "2026-12-02", {}, notif
 local lead = logic.notifications(at(9, 45), "2026-11-12", notify_tasks, notify_context,
   notify_settings(), {})
 eq("lead fires in window", only_kind(lead, "lead"), true)
-eq("lead copy", lead[1].body, '15 min to "Write".')
+eq("lead key", lead[1].body_key, "notify.lead")
+eq("lead minutes", lead[1].subst.minutes, 15)
+eq("lead title", lead[1].subst.title, "Write")
 eq("lead too early", #logic.notifications(at(9, 44), "2026-11-12", notify_tasks,
   notify_context, notify_settings(), {}), 0)
 eq("lead silent in quiet hours", #logic.notifications(at(6, 50), "2026-11-12", {
@@ -518,7 +568,9 @@ eq("task lead blocks early", #logic.notifications(at(9, 50), "2026-11-12",
 local due = logic.notifications(at(10, 5), "2026-11-12", notify_tasks, notify_context,
   notify_settings(), {})
 eq("due fires after deadline", only_kind(due, "due"), true)
-eq("due copy", due[1].body, '"Write" is due now (40%).')
+eq("due key", due[1].body_key, "notify.due")
+eq("due progress", due[1].subst.progress, 40)
+eq("due title", due[1].subst.title, "Write")
 eq("due deduped per task", #logic.notifications(at(10, 5), "2026-11-12", notify_tasks,
   notify_context, notify_settings(), { ["due:write:" .. local_ms(2026, 11, 12, 10, 0)] = 1 }), 0)
 eq("due stale after 60 min", #logic.notifications(at(11, 1), "2026-11-12", notify_tasks,
@@ -529,10 +581,6 @@ eq("due exempt from quiet hours", only_kind(logic.notifications(at(22, 30), "202
 }, { today_count = 1, open_count = 1, carried_count = 0, score = 10 },
   notify_settings(), {}), "due"), true)
 
-eq("weekly copy", logic.weekly_notice({ done = 18, carryover = 6, score = 71 }),
-  "Your week: 18 done, 6 carried, 71%.")
-eq("monthly copy", logic.monthly_notice({ month_label = "October 2026", score = 71 }),
-  "October 2026 in review — 71% efficiency.")
 
 -- ── launcher capture tokens ─────────────────────────────────────────────────
 --
@@ -611,6 +659,26 @@ eq("capture preserves word order", capture("milk buy @17:00").title, "milk buy")
 -- the label compares calendar dates, so a due at 01:30 with a 04:00 rollover is
 -- still "today" rather than yesterday
 eq("capture due day label next weekday", logic.due_day_label(local_ms(2026, 11, 15, 9, 0), capture_now), "Sun 09:00")
+
+-- ── trash window ────────────────────────────────────────────────────────────
+
+local day_ms = 86400000
+eq("trash fresh", logic.trash_days_left(0, 0, 30), 30)
+eq("trash three days", logic.trash_days_left(0, 3 * day_ms, 30), 27)
+eq("trash rounds up", logic.trash_days_left(0, 29.5 * day_ms, 30), 1)
+eq("trash at the window", logic.trash_days_left(0, 30 * day_ms, 30), 0)
+eq("trash past the window", logic.trash_days_left(0, 40 * day_ms, 30), 0)
+eq("trash custom retention", logic.trash_days_left(0, day_ms, 7), 6)
+eq("trash default retention", logic.trash_days_left(0, 0, nil), 30)
+
+-- the countdown and the purge must agree about the boundary: 0 days left is
+-- "goes tonight", and purge only removes an entry *past* the window
+local inside, inside_removed = logic.purge_trash({ { deleted_ms = 0, task = {} } }, 29.9 * day_ms, 30)
+eq("trash inside window kept", #inside, 1)
+eq("trash inside window removed", inside_removed, 0)
+local outside, outside_removed = logic.purge_trash({ { deleted_ms = 0, task = {} } }, 30.5 * day_ms, 30)
+eq("trash outside window kept", #outside, 0)
+eq("trash outside window removed", outside_removed, 1)
 
 -- ── summary ─────────────────────────────────────────────────────────────────
 

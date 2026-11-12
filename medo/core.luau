@@ -31,6 +31,8 @@ local DEFAULTS = {
   quiet_start = "22:00",
   quiet_end = "07:00",
   lead_min = 15,
+  sounds_enabled = true,
+  mascot_enabled = true,
 }
 
 local doc
@@ -41,6 +43,14 @@ local state = nil
 local debug_notification_ms = nil
 local last_published = nil
 local last_cmd_rev = 0
+
+-- celebration + sound cues (Phase 4c): the card is a view field, not document
+-- data, and a cue is a one-shot per mutation.
+local CELEBRATION_MS = 8000
+local celebrate_until = 0
+local pending_cue = nil
+local was_all_done = false
+local cues_ready = {}
 
 local function now()
   return noctalia.nowMs()
@@ -63,7 +73,7 @@ end
 local function persist()
   local ok, err = store.save(doc)
   if not ok then
-    noctalia.notifyError("medo", "could not save tasks: " .. tostring(err))
+    noctalia.notifyError(title(), tr("error.save", { error = tostring(err) }))
   end
   return ok
 end
@@ -93,6 +103,13 @@ local function counts()
   return done, total, carried, pending
 end
 
+-- PLAN §3.5's definition of "the day is finished": at least one task and every
+-- one of them at 100 %.
+local function everything_done()
+  local done, total = counts()
+  return total > 0 and done >= total
+end
+
 -- Closed days live in history.json; the service keeps them in memory so the
 -- view can build the sparkline and reports without a disk read per publish.
 local function refresh_history()
@@ -108,6 +125,25 @@ end
 -- live score and of the report's final bar.
 local function live_snapshot()
   return logic.snapshot(doc.day, doc.tasks, doc.carried_in, setting("default_estimate"))
+end
+
+-- Trash rows for the panel: newest deletion first, each with the days its
+-- restore window has left (the purge itself happens at rollover).
+local function trash_rows()
+  local rows = {}
+  for _, entry in ipairs(doc.trash or {}) do
+    local task = type(entry) == "table" and entry.task or nil
+    if type(task) == "table" then
+      local deleted_ms = tonumber(entry.deleted_ms) or 0
+      rows[#rows + 1] = {
+        task = task,
+        deleted_ms = deleted_ms,
+        days_left = logic.trash_days_left(deleted_ms, now(), setting("trash_days")),
+      }
+    end
+  end
+  table.sort(rows, function(a, b) return a.deleted_ms > b.deleted_ms end)
+  return rows
 end
 
 local function view()
@@ -136,6 +172,9 @@ local function view()
     today_tasks = tasks_with("today"),
     pending_tasks = tasks_with("pending"),
     trash_count = #(doc.trash or {}),
+    trash_tasks = trash_rows(),
+    all_done = everything_done(),
+    celebrate_until = celebrate_until,
   }
 end
 
@@ -165,6 +204,42 @@ local function build_report(period)
   return build_report_for(period, doc.day)
 end
 
+-- ── copy ────────────────────────────────────────────────────────────────────
+--
+-- Every user-facing string comes from translations/en.json. `trp` picks the
+-- plural form and passes `count` through; the plugin name stays the brand.
+
+local function tr(key, subst, count)
+  if count then return noctalia.trp(key, count, subst) end
+  return noctalia.tr(key, subst)
+end
+
+local function title()
+  return noctalia.tr("plugin.name")
+end
+
+-- The report toasts need the report itself, so they are built here rather than
+-- in the pure layer.
+local function weekly_body()
+  local snapshot = build_report("weekly")
+  if not snapshot then return nil end
+  return tr("notify.weekly", {
+    done = snapshot.done or 0,
+    carried = snapshot.carryover or 0,
+    score = snapshot.score or 0,
+  })
+end
+
+local function monthly_body(previous_day)
+  local snapshot = build_report_for("monthly", previous_day)
+  if not snapshot then return nil end
+  return tr("notify.monthly", {
+    month = snapshot.month_label or "",
+    score = snapshot.score or 0,
+  })
+end
+
+
 -- Render the requested report and write it into export_dir. Markdown is the
 -- default (PLAN open decision 7); JSON carries the report object as-is.
 local function handle_export(period, format)
@@ -172,7 +247,7 @@ local function handle_export(period, format)
   local target_format = format == "json" and "json" or "markdown"
   local snapshot = build_report(chosen)
   if not snapshot then
-    noctalia.notifyError("medo", "export: could not build the report")
+    noctalia.notifyError(title(), tr("error.export_build"))
     return false
   end
   report = snapshot
@@ -189,21 +264,21 @@ local function handle_export(period, format)
     }, true)
   else
     payload = logic.report_markdown(snapshot,
-      os.date("%Y-%m-%d %H:%M", math.floor(now() / 1000)))
+      os.date("%Y-%m-%d %H:%M", math.floor(now() / 1000)), tr)
   end
   if not payload then
-    noctalia.notifyError("medo", "export: could not encode the report")
+    noctalia.notifyError(title(), tr("error.export_encode"))
     return false
   end
 
   local ok, err = store.write_text(path, payload)
   if not ok then
-    noctalia.notifyError("medo", "export failed: " .. tostring(err))
+    noctalia.notifyError(title(), tr("error.export_write", { error = tostring(err) }))
     return false
   end
   last_export = { path = path, format = target_format, period = chosen, ms = now() }
   noctalia.log("medo: exported " .. path)
-  noctalia.notify("medo", "exported " .. path)
+  noctalia.notify(title(), tr("toast.exported", { path = path }))
   publish(true)
   return true
 end
@@ -293,17 +368,18 @@ local function deliver_notifications()
 
   local changed = false
   for _, entry in ipairs(entries) do
-    local body = entry.body
+    local body
     if entry.kind == "weekly" then
-      body = logic.weekly_notice(build_report("weekly"))
+      body = weekly_body()
     elseif entry.kind == "monthly" then
       -- the 1st at 20:00 reviews the month that just ended
       local ordinal = logic.to_ordinal(doc.day)
-      local previous = ordinal and logic.from_ordinal(ordinal - 1) or doc.day
-      body = logic.monthly_notice(build_report_for("monthly", previous))
+      body = monthly_body(ordinal and logic.from_ordinal(ordinal - 1) or doc.day)
+    else
+      body = tr(entry.body_key, entry.subst)
     end
     if body then
-      noctalia.notify(entry.title or "medo", body)
+      noctalia.notify(title(), body)
       noctalia.log("medo: notify " .. tostring(entry.key) .. " :: " .. body)
     end
     state.notified[entry.key] = now_ms
@@ -321,19 +397,24 @@ local function debug_notify(kind)
   local context = notification_context()
   local body
   if kind == "morning" then
-    body = logic.morning_notice(context.today_count, context.carried_count)
+    if context.today_count == 0 then
+      body = tr("notify.morning.empty")
+    else
+      body = tr("notify.morning",
+        { planned = context.today_count, carried = context.carried_count })
+    end
   elseif kind == "evening" then
-    body = logic.evening_notice(context.open_count)
+    body = tr("notify.evening", { count = context.open_count })
   elseif kind == "atrisk" then
-    body = logic.atrisk_notice()
+    body = tr("notify.atrisk")
   elseif kind == "weekly" then
-    body = logic.weekly_notice(build_report("weekly"))
+    body = weekly_body()
   elseif kind == "monthly" then
     -- the debug preview always reviews the previous calendar month, matching
     -- the 1st-at-20:00 schedule even when previewed mid-month
     local start = logic.month_start_day(doc.day)
     local previous = start and logic.from_ordinal(logic.to_ordinal(start) - 1) or doc.day
-    body = logic.monthly_notice(build_report_for("monthly", previous))
+    body = monthly_body(previous)
   else
     local task
     for _, candidate in ipairs(doc.tasks) do
@@ -343,18 +424,72 @@ local function debug_notify(kind)
       end
     end
     if task and kind == "due" then
-      body = logic.due_notice(task.title, logic.clamp_progress(task.progress))
+      body = tr("notify.due", { title = task.title, progress = logic.clamp_progress(task.progress) })
     elseif task and kind == "lead" then
-      body = logic.lead_notice(math.max(1, math.floor((task.due_ms - now()) / 60000 + 0.5)),
-        task.title)
+      body = tr("notify.lead", {
+        minutes = math.max(1, math.floor((task.due_ms - now()) / 60000 + 0.5)),
+        title = task.title,
+      })
     end
   end
   if body then
-    noctalia.notify("medo", body)
+    noctalia.notify(title(), body)
     noctalia.log("medo: debug notify " .. tostring(kind) .. " :: " .. body)
   else
     noctalia.notifyError("medo", "debug-notify: nothing to show for " .. tostring(kind))
   end
+end
+
+-- ── celebration and sound cues (Phase 4c) ───────────────────────────────────
+--
+-- Sound names are scoped to one entry runtime, so the service loads and plays
+-- them; a panel cannot play a name it did not load itself. Playback honors the
+-- shell's [audio].sound_volume and the `sounds_enabled` setting.
+
+local function load_cues()
+  for _, name in ipairs({ "chime", "jingle", "thud" }) do
+    local accepted = noctalia.sound.load(name, "assets/sounds/" .. name .. ".ogg",
+      function(ok, err)
+        if ok then
+          cues_ready[name] = true
+        else
+          noctalia.log("medo: could not load sound " .. name .. ": " .. tostring(err))
+        end
+      end)
+    if not accepted then
+      noctalia.log("medo: sound load was not accepted for " .. name)
+    end
+  end
+end
+
+local function play_cue(name)
+  if setting("sounds_enabled") == false then return end
+  if not cues_ready[name] then return end
+  noctalia.sound.play(name)
+end
+
+-- Runs after every mutation: the first state where every task is done opens the
+-- celebration card for eight seconds and plays the jingle *instead of* the
+-- per-task chime, so one action never stacks two cues.
+local function sync_celebration()
+  local finished = everything_done()
+  if finished and not was_all_done then
+    celebrate_until = now() + CELEBRATION_MS
+    pending_cue = nil
+    play_cue("jingle")
+  elseif pending_cue then
+    play_cue(pending_cue)
+  end
+  pending_cue = nil
+  was_all_done = finished
+end
+
+-- Debug fixtures and resets write the document directly, so they have to
+-- re-baseline the celebration flag themselves or the next completion would not
+-- celebrate.
+local function settle_celebration()
+  celebrate_until = 0
+  was_all_done = everything_done()
 end
 
 -- ── mutations (each returns whether the document changed) ───────────────────
@@ -396,7 +531,9 @@ end
 local function set_progress(id, progress)
   local task = find_task(id)
   if not task then return false end
+  local before = logic.clamp_progress(task.progress)
   task.progress = logic.clamp_progress(progress)
+  if task.progress >= 100 and before < 100 then pending_cue = "chime" end
   task.completed_ms = task.progress >= 100 and (task.completed_ms or now()) or nil
   task.updated_ms = now()
   return true
@@ -419,6 +556,7 @@ local function delete_task(id)
       table.remove(doc.tasks, index)
       doc.trash = doc.trash or {}
       doc.trash[#doc.trash + 1] = { task = task, deleted_ms = now() }
+      pending_cue = "thud"
       return true
     end
   end
@@ -441,8 +579,47 @@ local function edit_task(fields)
   return true
 end
 
+-- Restoring keeps the progress it had when it was thrown away and appends the
+-- task to the end of Today, so a restore never rewrites what was already planned.
+local function restore_task(id)
+  for index, entry in ipairs(doc.trash or {}) do
+    local task = type(entry) == "table" and entry.task or nil
+    if type(task) == "table" and task.id == id then
+      table.remove(doc.trash, index)
+      task.status = "today"
+      task.order = #doc.tasks + 1
+      task.updated_ms = now()
+      if logic.clamp_progress(task.progress) >= 100 and not task.completed_ms then
+        task.completed_ms = now()
+      end
+      doc.tasks[#doc.tasks + 1] = task
+      return true
+    end
+  end
+  return false
+end
+
+-- "Delete forever": no backup of a single trash row, removed from the document.
+local function purge_task(id)
+  for index, entry in ipairs(doc.trash or {}) do
+    local task = type(entry) == "table" and entry.task or nil
+    if type(task) == "table" and task.id == id then
+      table.remove(doc.trash, index)
+      return true
+    end
+  end
+  return false
+end
+
+local function empty_trash()
+  if #(doc.trash or {}) == 0 then return false end
+  doc.trash = {}
+  return true
+end
+
 local function commit(changed)
   if changed then
+    sync_celebration()
     persist()
     publish(true)
   end
@@ -465,6 +642,8 @@ local function rollover(target_day, reason)
   refresh_history()
   report = nil
   store.backup(doc, plan.snapshot.day)
+  celebrate_until = 0
+  was_all_done = false
   persist()
   publish(true)
 
@@ -484,9 +663,45 @@ local function seed_demo()
   add_task({ title = "Read the plan", estimate_min = 20, progress = 0 })
   add_task({ title = "Buy milk", estimate_min = 15, tag = "life", progress = 0 })
   add_task({ title = "Old idea", estimate_min = 30, status = "pending", carried = 2, progress = 20 })
+  settle_celebration()
   persist()
   publish(true)
   noctalia.notify("medo", string.format("seeded %d tasks for %s", #doc.tasks, doc.day))
+end
+
+-- Three trash rows at different ages so the panel countdown and the purge
+-- boundary are visible: just deleted, three days old, and one day from purge.
+local function seed_trash()
+  doc.trash = doc.trash or {}
+  local samples = {
+    { title = "Cancel the gym trial", progress = 20, days = 0 },
+    { title = "Old blog idea", progress = 0, days = 3 },
+    { title = "Read that thread", progress = 60, days = 27 },
+  }
+  for index, sample in ipairs(samples) do
+    local task = {
+      id = logic.new_id(now(), string.format("t%03d", index)),
+      title = sample.title,
+      notes = "",
+      tag = "",
+      priority = "med",
+      estimate_min = 30,
+      due_ms = nil,
+      lead_min = 0,
+      progress = sample.progress,
+      carried = 0,
+      recurrence = nil,
+      status = "today",
+      order = index,
+      created_ms = now() - (sample.days + 2) * 86400000,
+      completed_ms = nil,
+    }
+    doc.trash[#doc.trash + 1] = { task = task, deleted_ms = now() - sample.days * 86400000 }
+  end
+  settle_celebration()
+  persist()
+  publish(true)
+  noctalia.notify("medo", string.format("seeded %d trash entries", #samples))
 end
 
 -- ── report fixture (debug) ──────────────────────────────────────────────────
@@ -568,6 +783,7 @@ local function seed_report()
   doc.streak = streak
   report = nil
 
+  settle_celebration()
   persist()
   publish(true)
   noctalia.notify("medo", string.format("report fixture: %d closed days + %d live tasks (streak %d)",
@@ -580,7 +796,7 @@ local function boot()
     doc = loaded
   else
     if err == "corrupt" then
-      noctalia.notifyError("medo", "tasks.json is unreadable and no backup recovered it; starting a fresh list")
+      noctalia.notifyError(title(), tr("error.corrupt_doc"))
     end
     doc = logic.default_doc(today(), setting("rollover_hour"))
     persist()
@@ -598,6 +814,8 @@ local function boot()
 
   refresh_history()
   load_notification_state()
+  was_all_done = everything_done()
+  load_cues()
   publish(true)
 end
 
@@ -606,6 +824,14 @@ function update()
   if day ~= doc.day and logic.days_between(doc.day, day) > 0 then
     rollover(day, "scheduled")
   end
+
+  -- the celebration card clears from here, not from a panel timer: the service
+  -- ticks every second and the republish reaches every open surface
+  if celebrate_until > 0 and now() > celebrate_until then
+    celebrate_until = 0
+    publish(true)
+  end
+
   sync_state_day()
   deliver_notifications()
   publish()
@@ -637,6 +863,12 @@ local function apply_command(cmd)
     changed = set_status(cmd.id, "today")
   elseif kind == "delete" then
     changed = delete_task(cmd.id)
+  elseif kind == "restore" then
+    changed = restore_task(cmd.id)
+  elseif kind == "purge" then
+    changed = purge_task(cmd.id)
+  elseif kind == "empty-trash" then
+    changed = empty_trash()
   elseif kind == "edit" then
     changed = edit_task(cmd)
   elseif kind == "report" then
@@ -716,6 +948,22 @@ function onIpc(event, payload)
     report = nil
     publish(true)
     noctalia.notify("medo", "history cleared")
+  elseif event == "debug-complete-all" then
+    local changed = false
+    for _, task in ipairs(doc.tasks) do
+      if task.status == "today" and logic.clamp_progress(task.progress) < 100 then
+        task.progress = 100
+        task.completed_ms = now()
+        task.updated_ms = now()
+        changed = true
+      end
+    end
+    local done, total = counts()
+    if commit(changed) then
+      noctalia.notify("medo", string.format("completed every task (%d/%d)", done, total))
+    else
+      noctalia.notify("medo", "nothing to complete")
+    end
   elseif event == "debug-dump" then
     noctalia.notify("medo", string.format("%s\n%s\nrev %d · %d tasks · %d closed days\nhistory %s\nstate %s",
       tostring(store.data_path()), summary(), doc.revision or 0, #doc.tasks, #history_days,
@@ -727,6 +975,7 @@ function onIpc(event, payload)
     noctalia.notify("medo", "day backdated to " .. payload .. " (restart the plugin to test catch-up)")
   elseif event == "debug-reset" then
     doc = logic.default_doc(today(), setting("rollover_hour"))
+    settle_celebration()
     persist()
     publish(true)
     noctalia.notify("medo", "list reset")
@@ -745,6 +994,26 @@ function onIpc(event, payload)
       if not commit(set_status(fields.id, status)) then
         noctalia.notifyError("medo", event .. ": unknown task or bad payload")
       end
+    end
+  elseif event == "debug-seed-trash" then
+    seed_trash()
+  elseif event == "restore" and type(payload) == "string" then
+    local ok, fields = pcall(noctalia.json.decode, payload)
+    if ok and type(fields) == "table" then
+      if not commit(restore_task(fields.id)) then
+        noctalia.notifyError("medo", "restore: unknown trash entry or bad payload")
+      end
+    end
+  elseif event == "purge" and type(payload) == "string" then
+    local ok, fields = pcall(noctalia.json.decode, payload)
+    if ok and type(fields) == "table" then
+      if not commit(purge_task(fields.id)) then
+        noctalia.notifyError("medo", "purge: unknown trash entry or bad payload")
+      end
+    end
+  elseif event == "empty-trash" then
+    if not commit(empty_trash()) then
+      noctalia.notify("medo", "trash is already empty")
     end
   elseif event == "delete" and type(payload) == "string" then
     local ok, fields = pcall(noctalia.json.decode, payload)

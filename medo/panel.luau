@@ -5,6 +5,31 @@
 
 local logic = require("./logic.luau")
 
+-- Bundled assets (Phase 4c). The font registers once per entry; a missing file
+-- or `mascot_enabled = false` falls back to the shell font and the text mascot.
+local HEADER_FONT = noctalia.loadFont("assets/fonts/Baloo2-SemiBold.ttf")
+
+-- Every user-visible string comes from translations/en.json (see
+-- tools/check_manifest.py, which fails on a key that is not there).
+local function tr(key, subst)
+  return noctalia.tr(key, subst)
+end
+local asset_checked = {}
+
+local function asset(name)
+  if asset_checked[name] == nil then
+    asset_checked[name] = noctalia.fileExists(name) and name or false
+  end
+  return asset_checked[name] or nil
+end
+
+local function mascot_image(state, size)
+  if noctalia.getConfig("mascot_enabled") == false then return nil end
+  local path = asset("assets/mascot/" .. state .. ".png")
+  if not path then return nil end
+  return ui.image({ path = path, width = size, height = size, fit = "contain" })
+end
+
 local ESTIMATES = { 15, 30, 45, 60, 90 }
 local ESTIMATE_LABELS = { "15m", "30m", "45m", "60m", "90m" }
 local PRIORITIES = { "low", "med", "high" }
@@ -37,6 +62,7 @@ local function read_view()
   if type(snapshot) == "table" then view = snapshot end
   if type(view.today_tasks) ~= "table" then view.today_tasks = {} end
   if type(view.pending_tasks) ~= "table" then view.pending_tasks = {} end
+  if type(view.trash_tasks) ~= "table" then view.trash_tasks = {} end
   if type(view.cap) ~= "table" then view.cap = { enabled = true, value = 3 } end
 end
 
@@ -100,23 +126,29 @@ local function mascot()
   return "(´･ᴗ･`)"
 end
 
+-- The blob when the artwork is available, the text face otherwise.
+local function mascot_node(size, fontSize)
+  local face = logic.mascot_face(logic.mascot_state(view.score), view.carried)
+  return mascot_image(face, size) or ui.label({ text = mascot(), fontSize = fontSize, color = "primary" })
+end
+
 local function tagline()
   local total = view.total or 0
   local done = view.done or 0
-  if total == 0 then return "nothing planned. medo is suspiciously calm." end
-  if done >= total then return "all done. go touch grass." end
-  if (view.carried or 0) > 0 then return tostring(view.carried) .. " carried. be gentle, then start." end
-  if (view.score or 0) >= 70 then return "on a roll. medo approves." end
-  return "one at a time. three is plenty."
+  if total == 0 then return tr("panel.tagline.empty") end
+  if done >= total then return tr("panel.tagline.done") end
+  if (view.carried or 0) > 0 then return tr("panel.tagline.carried", { count = view.carried }) end
+  if (view.score or 0) >= 70 then return tr("panel.tagline.rolling") end
+  return tr("panel.tagline.start")
 end
 
 -- ── dashboard ───────────────────────────────────────────────────────────────
 
 local MASCOT_COPY = {
-  sleepy = "slow start. one small thing counts.",
-  focused = "in the middle of it. keep going.",
-  proud = "look at that number. proud of you.",
-  celebrating = "100%. medo is doing a little dance.",
+  sleepy = "panel.mascot.sleepy",
+  focused = "panel.mascot.focused",
+  proud = "panel.mascot.proud",
+  celebrating = "panel.mascot.celebrating",
 }
 
 local function stat_card(label, value, sub, color)
@@ -147,11 +179,17 @@ local function dashboard_body()
 
   local score_card = ui.column({ gap = 6, padding = 12, radius = 12, fill = "surface_container" }, {
     ui.row({ gap = 10, align = "center" }, {
-      ui.label({ text = string.format("%d%%", score), fontSize = 40, fontWeight = "bold", color = mood_color }),
+      ui.label({
+        text = string.format("%d%%", score),
+        fontSize = 40,
+        fontWeight = "bold",
+        color = mood_color,
+        fontFamily = HEADER_FONT,
+      }),
       ui.column({ gap = 1, flexGrow = 1 }, {
-        ui.label({ text = "today's score", fontSize = 11, color = "on_surface_variant" }),
+        ui.label({ text = tr("panel.todays_score"), fontSize = 11, color = "on_surface_variant" }),
         ui.label({
-          text = string.format("%d of %d done · target %d%%", view.done or 0, view.total or 0, target),
+          text = tr("panel.done_of", { done = view.done or 0, total = view.total or 0, target = target }),
           fontSize = 10,
           color = "on_surface_variant",
         }),
@@ -169,18 +207,19 @@ local function dashboard_body()
   })
 
   local due = view.next_due
-  local due_value, due_sub = "nothing due", "a clear runway"
+  local due_value, due_sub = tr("panel.nothing_due"), tr("panel.clear_runway")
   if type(due) == "table" and due.due_ms then
     -- read the clock here, not view.now: the 30 s dashboard tick keeps the
     -- countdown honest while the panel stays open
     due_value = logic.countdown_text(due.due_ms, noctalia.nowMs())
-    due_sub = due.title or "task"
+    due_sub = due.title or tr("panel.task")
   end
 
   local stats = ui.row({ gap = 6, align = "stretch" }, {
-    stat_card("streak", "🔥 " .. tostring(view.streak or 0), "best " .. tostring(view.streak_best or 0), "tertiary"),
-    stat_card("next due", due_value, due_sub),
-    stat_card("carried in", tostring(view.carried_in or 0), "waiting from yesterday"),
+    stat_card(tr("panel.streak"), "🔥 " .. tostring(view.streak or 0),
+      tr("panel.best", { score = view.streak_best or 0 }), "tertiary"),
+    stat_card(tr("panel.next_due"), due_value, due_sub),
+    stat_card(tr("panel.carried_in"), tostring(view.carried_in or 0), tr("panel.waiting_yesterday")),
   })
 
   local spark = view.sparkline or {}
@@ -197,19 +236,19 @@ local function dashboard_body()
   end
   local spark_card = ui.column({ gap = 4, padding = 10, radius = 10, fill = "surface_container" }, {
     ui.row({ align = "center" }, {
-      ui.label({ text = "last 7 days", fontSize = 9, color = "on_surface_variant" }),
+      ui.label({ text = tr("panel.last_7_days"), fontSize = 9, color = "on_surface_variant" }),
       ui.spacer({ flexGrow = 1 }),
-      ui.label({ text = "score per day · 0–100", fontSize = 9, color = "on_surface_variant" }),
+      ui.label({ text = tr("panel.score_per_day"), fontSize = 9, color = "on_surface_variant" }),
     }),
     ui.graph({ values = values, height = 54, color = "primary", fillOpacity = 0.22, lineWidth = 2 }),
     ui.row({ gap = 0 }, day_labels),
   })
 
   local mood_card = ui.row({ gap = 10, align = "center", padding = 10, radius = 10, fill = "primary_container" }, {
-    ui.label({ text = mascot(), fontSize = 22, color = "on_primary_container" }),
+    mascot_node(52, 22),
     ui.column({ gap = 1, flexGrow = 1 }, {
       ui.label({
-        text = MASCOT_COPY[mood] or MASCOT_COPY.sleepy,
+        text = tr(MASCOT_COPY[mood] or MASCOT_COPY.sleepy),
         fontSize = 12,
         color = "on_primary_container",
         maxLines = 2,
@@ -260,29 +299,37 @@ local function period_toggle()
       end,
     })
   end
-  local range = "counting…"
+  local range = tr("panel.counting")
   if has_report() then range = view.report.label or range end
   return ui.row({ gap = 4, align = "center" }, {
-    period_button("weekly", "Weekly"),
-    period_button("monthly", "Monthly"),
+    period_button("weekly", tr("panel.weekly")),
+    period_button("monthly", tr("panel.monthly")),
     ui.spacer({ flexGrow = 1 }),
     ui.label({ text = range, fontSize = 10, color = "on_surface_variant" }),
   })
 end
 
 local function metrics_grid(report)
-  local trend = "no earlier period"
+  local trend = tr("panel.no_earlier")
   if type(report.trend) == "table" then
-    trend = string.format("%+d pts vs last %s", report.trend.delta,
-      report.period == "monthly" and "month" or "week")
+    trend = tr("panel.trend", {
+      delta = report.trend.delta,
+      period = report.period == "monthly" and tr("panel.month") or tr("panel.week"),
+    })
   end
   local best = "—"
   if report.best then
-    best = string.format("%s %d%%", logic.weekday_name(report.best.day, true) or "", report.best.score)
+    best = tr("panel.day_score", {
+      weekday = logic.weekday_name(report.best.day, true) or "",
+      score = report.best.score,
+    })
   end
-  local worst = "no bad days"
+  local worst = tr("panel.no_bad_days")
   if report.worst then
-    worst = string.format("worst %s %d%%", logic.weekday_name(report.worst.day, true) or "", report.worst.score)
+    worst = tr("panel.worst", {
+      weekday = logic.weekday_name(report.worst.day, true) or "",
+      score = report.worst.score,
+    })
   end
   local on_time = report.on_time_total > 0 and string.format("%d%%", report.on_time_rate) or "—"
 
@@ -292,15 +339,21 @@ local function metrics_grid(report)
 
   return ui.column({ gap = 5 }, {
     row(
-      stat_card("score", string.format("%d%%", report.score), trend, report.score >= 70 and "tertiary" or "primary"),
-      stat_card("done", string.format("%d/%d", report.done, report.assigned),
-        logic.fmt_minutes(report.effort_done) .. " of " .. logic.fmt_minutes(report.effort_assigned))),
+      stat_card(tr("panel.score"), string.format("%d%%", report.score), trend,
+        report.score >= 70 and "tertiary" or "primary"),
+      stat_card(tr("panel.done"), string.format("%d/%d", report.done, report.assigned),
+        tr("panel.effort_of", {
+          done = logic.fmt_minutes(report.effort_done),
+          assigned = logic.fmt_minutes(report.effort_assigned),
+        }))),
     row(
-      stat_card("carried", tostring(report.carryover), string.format("%d%% of tasks", report.carryover_rate)),
-      stat_card("on time", on_time, string.format("%d of %d had a deadline", report.on_time, report.on_time_total))),
+      stat_card(tr("panel.carried"), tostring(report.carryover),
+        tr("panel.of_tasks", { rate = report.carryover_rate })),
+      stat_card(tr("panel.on_time"), on_time,
+        tr("panel.deadline_note", { done = report.on_time, total = report.on_time_total }))),
     row(
-      stat_card("avg at close", string.format("%d%%", report.avg_progress), "unfinished tasks"),
-      stat_card("best day", best, worst, "tertiary")),
+      stat_card(tr("panel.avg_close"), string.format("%d%%", report.avg_progress), tr("panel.unfinished")),
+      stat_card(tr("panel.best_day"), best, worst, "tertiary")),
   })
 end
 
@@ -311,7 +364,7 @@ local function tags_card(report)
     local tag = report.by_tag[index]
     rows[#rows + 1] = ui.row({ gap = 8, align = "center" }, {
       ui.label({
-        text = tag.tag == "untagged" and "untagged" or ("#" .. tag.tag),
+        text = tag.tag == "untagged" and tr("panel.untagged") or ("#" .. tag.tag),
         width = 88,
         fontSize = 10,
         maxLines = 1,
@@ -334,16 +387,26 @@ local function tags_card(report)
     })
   end
   if #(report.by_tag or {}) > shown then
+    local extra = #report.by_tag - shown
     rows[#rows + 1] = ui.label({
-      text = string.format("+%d more tag%s", #report.by_tag - shown, #report.by_tag - shown == 1 and "" or "s"),
+      text = noctalia.trp("panel.more_tags", extra, { count = extra }),
       fontSize = 9,
       color = "on_surface_variant",
     })
   end
   return ui.column({ gap = 5, padding = 8, radius = 10, fill = "surface_container" }, {
-    ui.label({ text = "tags", fontSize = 9, color = "on_surface_variant" }),
+    ui.label({ text = tr("panel.tags"), fontSize = 9, color = "on_surface_variant" }),
     ui.column({ gap = 4 }, rows),
   })
+end
+
+-- Insights carry a key, its numbers and (for the two plural rules) the count
+-- trp needs; the copy itself lives in translations/en.json.
+local function insight_text(insight)
+  if insight.plural then
+    return noctalia.trp(insight.key, insight.plural, insight.subst)
+  end
+  return tr(insight.key, insight.subst)
 end
 
 local function insights_card(report)
@@ -352,7 +415,7 @@ local function insights_card(report)
     rows[#rows + 1] = ui.row({ gap = 8, align = "start" }, {
       ui.glyph({ name = "bulb", size = 14, color = "tertiary" }),
       ui.label({
-        text = insight.text,
+        text = insight_text(insight),
         fontSize = 11,
         flexGrow = 1,
         maxLines = 3,
@@ -361,7 +424,7 @@ local function insights_card(report)
     })
   end
   return ui.column({ gap = 4, padding = 8, radius = 10, fill = "surface_container" }, {
-    ui.label({ text = "what to improve", fontSize = 9, color = "on_surface_variant" }),
+    ui.label({ text = tr("panel.improve"), fontSize = 9, color = "on_surface_variant" }),
     ui.column({ gap = 4 }, rows),
   })
 end
@@ -397,17 +460,17 @@ local function reports_body()
 
   if type(report_view) ~= "table" or report_view.period ~= period or report_view.day ~= view.day then
     children[#children + 1] = ui.column({ gap = 4, padding = 14, radius = 10, fill = "surface_container" }, {
-      ui.label({ text = "counting the days…", fontSize = 12, color = "on_surface_variant" }),
+      ui.label({ text = tr("panel.counting_days"), fontSize = 12, color = "on_surface_variant" }),
     })
   elseif (report_view.active_days or 0) == 0 then
     children[#children + 1] = ui.column({ gap = 4, padding = 14, radius = 10, fill = "surface_container" }, {
       ui.label({
-        text = "Reports need a few closed days. Come back Sunday.",
+        text = tr("panel.reports_empty"),
         fontSize = 12,
         color = "on_surface_variant",
       }),
       ui.label({
-        text = "The live day starts counting once it closes.",
+        text = tr("panel.reports_empty_sub"),
         fontSize = 9,
         color = "on_surface_variant",
       }),
@@ -442,7 +505,7 @@ local function row_node(task, index)
       glyph = "calendar-plus",
       variant = "ghost",
       controlSize = "sm",
-      tooltip = "Plan for today",
+      tooltip = tr("panel.plan_today"),
       onClick = function() send("promote", { id = task.id }) end,
     })
   end
@@ -450,7 +513,7 @@ local function row_node(task, index)
     glyph = "pencil",
     variant = "ghost",
     controlSize = "sm",
-    tooltip = "Edit",
+    tooltip = tr("panel.tip.edit"),
     onClick = function()
       editing = {
         id = task.id,
@@ -471,7 +534,7 @@ local function row_node(task, index)
     glyph = "trash",
     variant = "ghost",
     controlSize = "sm",
-    tooltip = "Delete",
+    tooltip = tr("panel.tip.delete"),
     onClick = function() send("delete", { id = task.id }) end,
   })
 
@@ -549,7 +612,7 @@ editor_node = function(task)
   end
 
   local pending_button = ui.button({
-    text = tab == "today" and "Move to Pending" or "Plan for today",
+    text = tab == "today" and tr("panel.move_pending") or tr("panel.plan_today"),
     variant = "ghost",
     controlSize = "sm",
     onClick = function()
@@ -560,7 +623,7 @@ editor_node = function(task)
   })
 
   local cancel = ui.button({
-    text = "Cancel",
+    text = tr("panel.cancel"),
     variant = "ghost",
     controlSize = "sm",
     onClick = function() editing = nil; render() end,
@@ -585,7 +648,7 @@ editor_node = function(task)
   end
 
   local save = ui.button({
-    text = "Save",
+    text = tr("panel.save"),
     variant = "primary",
     controlSize = "sm",
     onClick = save_draft,
@@ -595,7 +658,7 @@ editor_node = function(task)
     ui.input({
       key = "edit-title-" .. epoch,
       value = draft.title,
-      placeholder = "Title",
+      placeholder = tr("panel.field.title"),
       controlSize = "sm",
       focus = true,
       onChange = field_changed(function(value) draft.title = value end),
@@ -624,14 +687,18 @@ editor_node = function(task)
       ui.input({
         key = "edit-tag-" .. epoch,
         value = draft.tag,
-        placeholder = "tag",
+        placeholder = tr("panel.field.tag"),
         width = 84,
         controlSize = "sm",
         onChange = field_changed(function(value) draft.tag = value end),
       }),
       ui.select({
         key = "edit-pri-" .. epoch,
-        options = { "low", "med", "high" },
+        options = {
+          tr("panel.priority.low"),
+          tr("panel.priority.med"),
+          tr("panel.priority.high"),
+        },
         selectedIndex = (draft.priority or 2) - 1,
         width = 76,
         controlSize = "sm",
@@ -641,7 +708,7 @@ editor_node = function(task)
     ui.input({
       key = "edit-notes-" .. epoch,
       value = draft.notes,
-      placeholder = "notes",
+      placeholder = tr("panel.field.notes"),
       multiline = true,
       height = 52,
       controlSize = "sm",
@@ -684,7 +751,7 @@ local function add_form()
     ui.input({
       key = "add-title-" .. add_epoch,
       value = add.title,
-      placeholder = "add a task…",
+      placeholder = tr("panel.add_placeholder"),
       flexGrow = 1,
       controlSize = "sm",
       focus = add_focus,
@@ -714,13 +781,13 @@ local function add_form()
       ui.input({
         key = "add-tag-" .. add_epoch,
         value = add.tag,
-        placeholder = "tag",
+        placeholder = tr("panel.field.tag"),
         width = 84,
         controlSize = "sm",
         onChange = function(value) add.tag = value end,
       }),
       ui.button({
-        text = "Add",
+        text = tr("panel.add"),
         variant = "primary",
         controlSize = "sm",
         flexGrow = 1,
@@ -732,13 +799,13 @@ local function add_form()
   if cap_pending then
     children[#children + 1] = ui.column({ gap = 6, padding = 8, radius = 8, fill = "primary_container" }, {
       ui.label({
-        text = string.format("Today already has %d. Add one more anyway?", view.cap.value or 3),
+        text = tr("panel.cap_prompt", { count = view.cap.value or 3 }),
         fontSize = 11,
         color = "on_primary_container",
       }),
       ui.row({ gap = 6, align = "center" }, {
         ui.button({
-          text = "Add it",
+          text = tr("panel.add_anyway"),
           variant = "primary",
           controlSize = "sm",
           onClick = function()
@@ -751,7 +818,7 @@ local function add_form()
           end,
         }),
         ui.button({
-          text = "Not now",
+          text = tr("panel.not_now"),
           variant = "ghost",
           controlSize = "sm",
           onClick = function()
@@ -766,14 +833,228 @@ local function add_form()
   return ui.column({ gap = 6, padding = 10, radius = 10, fill = "surface_container" }, children)
 end
 
+-- ── celebration (Phase 4c) ──────────────────────────────────────────────────
+
+local dismissed_celebration = 0
+
+-- The service stamps `celebrate_until` (now + 8 s) the first time every task is
+-- done; the card shows until then, until "Back to the list", or until the stamp
+-- changes. No animation exists at API 43, so this is a static card with a timer.
+local function celebrating()
+  local until_ms = tonumber(view.celebrate_until) or 0
+  if until_ms <= 0 or until_ms <= noctalia.nowMs() then return false end
+  return dismissed_celebration < until_ms
+end
+
+local function celebration_body()
+  local card = logic.celebration(view.done, view.total)
+  local children = { mascot_image("proud", 96) or ui.label({ text = "(≧▽≦)", fontSize = 52, color = "tertiary" }) }
+  children[#children + 1] = ui.label({
+    text = tr(card.headline_key),
+    fontSize = 20,
+    fontWeight = "bold",
+    textAlign = "center",
+    fontFamily = HEADER_FONT,
+    maxLines = 2,
+  })
+  children[#children + 1] = ui.label({
+    text = tr(card.line_key, card.subst),
+    fontSize = 13,
+    textAlign = "center",
+    color = "on_surface_variant",
+  })
+  children[#children + 1] = ui.button({
+    text = tr("panel.back_to_list"),
+    variant = "ghost",
+    controlSize = "sm",
+    onClick = function()
+      dismissed_celebration = tonumber(view.celebrate_until) or 0
+      render()
+    end,
+  })
+  return ui.column({ gap = 10, padding = 24, radius = 14, fill = "surface_container", align = "center" }, children)
+end
+
+-- ── evening triage (Phase 4c) ───────────────────────────────────────────────
+--
+-- Notifications carry no action buttons, so the 21:00 toast is the doorbell and
+-- this card is the surface: `noctalia msg panel-open goutamsharma/medo:panel triage`.
+
+local triage_ignored = {}
+
+local function triage_tasks()
+  local rows = {}
+  for _, task in ipairs(view.today_tasks or {}) do
+    if progress_of(task) < 100 and not triage_ignored[task.id] then rows[#rows + 1] = task end
+  end
+  for _, task in ipairs(view.pending_tasks or {}) do
+    if not triage_ignored[task.id] then rows[#rows + 1] = task end
+  end
+  return rows
+end
+
+local function triage_row(task)
+  local due = due_text(task)
+  local top = {
+    ui.glyph({ name = "circle", size = 14, color = priority_color(task.priority) }),
+    ui.label({ text = task.title, fontSize = 13, flexGrow = 1, maxLines = 1 }),
+    badge(task.status == "pending" and tr("panel.status.pending") or tr("panel.status.today"),
+      "on_surface_variant"),
+  }
+  if due then top[#top + 1] = badge(due, is_overdue(task) and "error" or "on_surface_variant") end
+  if (tonumber(task.carried) or 0) > 0 then top[#top + 1] = badge("×" .. tostring(task.carried), "tertiary") end
+
+  local function act(kind)
+    return function()
+      send(kind, { id = task.id })
+      -- answered rows leave the card immediately; the service republishes the
+      -- view a moment later for the rows that really changed state
+      triage_ignored[task.id] = true
+      render()
+    end
+  end
+
+  local buttons = {
+    ui.button({
+      text = tr("panel.triage.retry"),
+      variant = "primary",
+      controlSize = "sm",
+      tooltip = tr("panel.triage.retry_tip"),
+      onClick = act("promote"),
+    }),
+  }
+  if task.status ~= "pending" then
+    buttons[#buttons + 1] = ui.button({
+      text = tr("panel.triage.park"),
+      variant = "ghost",
+      controlSize = "sm",
+      tooltip = tr("panel.triage.park_tip"),
+      onClick = act("park"),
+    })
+  end
+  buttons[#buttons + 1] = ui.spacer({ flexGrow = 1 })
+  buttons[#buttons + 1] = ui.button({
+    text = tr("panel.triage.drop"),
+    variant = "destructive",
+    controlSize = "sm",
+    tooltip = tr("panel.triage.drop_tip"),
+    onClick = act("delete"),
+  })
+
+  return ui.column({ gap = 6, padding = 8, radius = 10, fill = "surface_container" }, {
+    ui.row({ gap = 6, align = "center" }, top),
+    ui.row({ gap = 6, align = "center" }, buttons),
+  })
+end
+
+local function triage_body()
+  local rows = triage_tasks()
+  local summary = logic.triage_summary(rows)
+  local children = {
+    ui.column({ gap = 3, padding = 12, radius = 12, fill = "primary_container" }, {
+      ui.label({ text = tr("panel.triage.title"), fontSize = 10, color = "on_primary_container" }),
+      ui.label({ text = tr(summary.copy_key, summary.subst), fontSize = 13,
+        color = "on_primary_container", maxLines = 2 }),
+    }),
+  }
+  if #rows == 0 then
+    children[#children + 1] = ui.column({ gap = 4, padding = 14, radius = 10, fill = "surface_container" }, {
+      ui.label({ text = tr("panel.triage.empty"), fontSize = 12, color = "on_surface_variant" }),
+    })
+  else
+    for _, task in ipairs(rows) do children[#children + 1] = triage_row(task) end
+    children[#children + 1] = ui.label({
+      text = tr("panel.triage.hint"),
+      fontSize = 9,
+      color = "on_surface_variant",
+      maxLines = 2,
+    })
+  end
+  return ui.column({ gap = 6 }, children)
+end
+
+-- ── trash (Phase 5a) ────────────────────────────────────────────────────────
+--
+-- Rows come from the service (`view.trash_tasks`, newest deletion first, each
+-- with the days its restore window has left). The panel only sends `restore`,
+-- `purge` and `empty-trash`; rollover is still the only automatic purge.
+
+local function trash_row(entry)
+  local task = entry.task or {}
+  local days = tonumber(entry.days_left) or 0
+  local window
+  if days <= 0 then
+    window = tr("panel.trash.tonight")
+  else
+    window = noctalia.trp("panel.trash.purges", days, { count = days })
+  end
+  local deleted = "?"
+  if entry.deleted_ms and entry.deleted_ms > 0 then
+    deleted = os.date("%d %b", math.floor(entry.deleted_ms / 1000))
+  end
+
+  return ui.column({ gap = 6, padding = 8, radius = 10, fill = "surface_container" }, {
+    ui.row({ gap = 6, align = "center" }, {
+      ui.glyph({ name = "trash", size = 13, color = "on_surface_variant" }),
+      ui.label({ text = task.title or "untitled", fontSize = 13, flexGrow = 1, maxLines = 1 }),
+    }),
+    ui.row({ gap = 6, align = "center" }, {
+      ui.label({
+        text = tr("panel.trash.deleted", { date = deleted, window = window }),
+        fontSize = 10,
+        color = "on_surface_variant",
+        flexGrow = 1,
+        maxLines = 1,
+      }),
+      ui.button({
+        text = tr("panel.restore"),
+        variant = "primary",
+        controlSize = "sm",
+        tooltip = tr("panel.restore_tip"),
+        onClick = function()
+          send("restore", { id = task.id })
+          render()
+        end,
+      }),
+      ui.button({
+        text = tr("panel.delete_forever"),
+        variant = "destructive",
+        controlSize = "sm",
+        tooltip = tr("panel.delete_forever_tip"),
+        onClick = function()
+          send("purge", { id = task.id })
+          render()
+        end,
+      }),
+    }),
+  })
+end
+
+local function trash_body()
+  local rows = view.trash_tasks or {}
+  if #rows == 0 then
+    return ui.column({ gap = 4, padding = 14, radius = 10, fill = "surface_container" }, {
+      ui.label({ text = tr("panel.empty.trash"), fontSize = 12, color = "on_surface_variant" }),
+      ui.label({
+        text = tr("panel.empty.trash_sub"),
+        fontSize = 9,
+        color = "on_surface_variant",
+      }),
+    })
+  end
+  local children = {}
+  for _, entry in ipairs(rows) do children[#children + 1] = trash_row(entry) end
+  return ui.column({ gap = 6 }, children)
+end
+
 -- ── header, tabs, bodies, footer ────────────────────────────────────────────
 
 local function header()
   return ui.row({ gap = 10, align = "center" }, {
-    ui.label({ text = mascot(), fontSize = 18, color = "primary" }),
+    mascot_node(30, 18),
     ui.column({ flexGrow = 1, gap = 2 }, {
       ui.row({ gap = 8, align = "center" }, {
-        ui.label({ text = "medo", fontSize = 16, fontWeight = "bold" }),
+        ui.label({ text = tr("plugin.name"), fontSize = 17, fontWeight = "bold", fontFamily = HEADER_FONT }),
         ui.label({ text = view.day or "…", fontSize = 11, color = "on_surface_variant" }),
         ui.label({ text = string.format("%d%%", view.score or 0), fontSize = 11, color = "primary" }),
         ui.label({ text = "🔥" .. tostring(view.streak or 0), fontSize = 11, color = "on_surface_variant" }),
@@ -783,10 +1064,11 @@ local function header()
     ui.button({
       glyph = "adjustments",
       variant = "ghost",
-      tooltip = "medo settings",
+      tooltip = tr("panel.tip.settings"),
       onClick = function() noctalia.openSettings() end,
     }),
-    ui.button({ glyph = "close", variant = "ghost", tooltip = "Close", onClick = function() panel.close() end }),
+    ui.button({ glyph = "close", variant = "ghost", tooltip = tr("panel.tip.close"),
+      onClick = function() panel.close() end }),
   })
 end
 
@@ -799,6 +1081,9 @@ local function tab_strip()
       variant = tab == id and "secondary" or "ghost",
       selected = tab == id,
       controlSize = "sm",
+      -- five tabs at the 460 px panel width: the smaller face keeps "Pending 1"
+      -- and "Reports" whole instead of clipped (measured, not guessed)
+      fontSize = 10,
       flexGrow = 1,
       onClick = function()
         if tab ~= id then
@@ -812,10 +1097,11 @@ local function tab_strip()
     })
   end
   return ui.row({ gap = 4, align = "center" }, {
-    tab_button("today", "Today", #(view.today_tasks or {})),
-    tab_button("pending", "Pending", #(view.pending_tasks or {})),
-    tab_button("dashboard", "Dashboard"),
-    tab_button("reports", "Reports"),
+    tab_button("today", tr("panel.tab.today"), #(view.today_tasks or {})),
+    tab_button("pending", tr("panel.tab.pending"), #(view.pending_tasks or {})),
+    tab_button("dashboard", tr("panel.tab.stats")),
+    tab_button("reports", tr("panel.tab.reports")),
+    tab_button("trash", tr("panel.tab.trash"), #(view.trash_tasks or {})),
   })
 end
 
@@ -825,8 +1111,7 @@ local function list_body()
   if #rows == 0 then
     children[#children + 1] = ui.column({ gap = 4, padding = 14, radius = 10, fill = "surface_container" }, {
       ui.label({
-        text = tab == "today" and "Nothing planned yet. Three is a good number to start."
-          or "No leftovers. Medo is pleasantly surprised.",
+        text = tab == "today" and tr("panel.empty.today") or tr("panel.empty.pending"),
         fontSize = 12,
         color = "on_surface_variant",
       }),
@@ -844,31 +1129,62 @@ local function footer()
     return ui.column({ gap = 2 }, {
       ui.separator({}),
       ui.label({
-        text = string.format("%s · score %d%% · target %d%% · streak %d (best %d)",
-          view.day or "…", view.score or 0, view.target or 70,
-          view.streak or 0, view.streak_best or 0),
+        text = tr("panel.footer.dashboard", {
+          day = view.day or "…",
+          score = view.score or 0,
+          target = view.target or 70,
+          streak = view.streak or 0,
+          best = view.streak_best or 0,
+        }),
         fontSize = 10,
         color = "on_surface_variant",
       }),
     })
+  elseif tab == "trash" then
+    local retention = tonumber(noctalia.getConfig("trash_days")) or 30
+    local children = {
+      ui.separator({}),
+      ui.label({
+        text = tr("panel.trash.footer", { days = retention }),
+        fontSize = 10,
+        color = "on_surface_variant",
+        maxLines = 2,
+      }),
+    }
+    if #(view.trash_tasks or {}) > 0 then
+      children[#children + 1] = ui.row({ gap = 6, align = "center" }, {
+        ui.button({
+          text = tr("panel.empty_trash"),
+          variant = "ghost",
+          controlSize = "sm",
+          tooltip = tr("panel.empty_trash_tip"),
+          onClick = function()
+            send("empty-trash")
+            render()
+          end,
+        }),
+        ui.spacer({ flexGrow = 1 }),
+      })
+    end
+    return ui.column({ gap = 4 }, children)
   elseif tab == "reports" then
     local exportable = has_report() and (view.report.active_days or 0) > 0
-    local note = "reports are built on demand from closed days + today"
+    local note = tr("panel.reports_note")
     if type(view.last_export) == "table" and view.last_export.path
       and view.last_export.period == period then
-      note = "last export · " .. tostring(view.last_export.path)
+      note = tr("panel.last_export", { path = tostring(view.last_export.path) })
     end
     local children = { ui.separator({}) }
     if exportable then
       children[#children + 1] = ui.row({ gap = 6, align = "center" }, {
         ui.button({
-          text = "Export Markdown",
+          text = tr("panel.export_md"),
           variant = "primary",
           controlSize = "sm",
           onClick = function() send("export", { period = period, format = "markdown" }) end,
         }),
         ui.button({
-          text = "Export JSON",
+          text = tr("panel.export_json"),
           variant = "ghost",
           controlSize = "sm",
           onClick = function() send("export", { period = period, format = "json" }) end,
@@ -895,13 +1211,17 @@ local function footer()
   return ui.column({ gap = 2 }, {
     ui.separator({}),
     ui.label({
-      text = string.format("%d today · %s planned · %d%% · %d carried",
-        #(view.today_tasks or {}), planned_text, view.score or 0, view.carried or 0),
+      text = tr("panel.footer.today", {
+        count = #(view.today_tasks or {}),
+        planned = planned_text,
+        score = view.score or 0,
+        carried = view.carried or 0,
+      }),
       fontSize = 10,
       color = "on_surface_variant",
     }),
     ui.label({
-      text = "type to add · Enter saves · click a row to edit",
+      text = tr("panel.footer.hint"),
       fontSize = 10,
       color = "on_surface_variant",
     }),
@@ -913,8 +1233,20 @@ function render()
   local rows = current_rows()
   if #rows == 0 then selected = 1 elseif selected > #rows then selected = #rows end
 
+  -- the service clears the stamp when it expires; these ticks only shorten the
+  -- delay while the card is up (a panel tick is not guaranteed on 5.4.1)
+  local celebration = celebrating()
+  panel.setWantsSecondTicks(celebration)
+  noctalia.setUpdateInterval(celebration and 1000 or 30000)
+
   local body
-  if tab == "dashboard" then
+  if celebration then
+    body = celebration_body()
+  elseif tab == "triage" then
+    body = triage_body()
+  elseif tab == "trash" then
+    body = trash_body()
+  elseif tab == "dashboard" then
     body = dashboard_body()
   elseif tab == "reports" then
     request_report(false)
@@ -942,11 +1274,17 @@ function onOpen(context)
   tab = "today"
   selected = 1
   last_report_request = nil
+  triage_ignored = {}
+  dismissed_celebration = 0
 
   -- context comes from `noctalia msg panel-open <id> <context>`; notifications
   -- and debugging use it to land on the right surface
   if context == "pending" then
     tab = "pending"
+  elseif context == "triage" then
+    tab = "triage"
+  elseif context == "trash" then
+    tab = "trash"
   elseif context == "dashboard" then
     tab = "dashboard"
   elseif context == "reports" or context == "reports-monthly" then
@@ -985,9 +1323,16 @@ function onOpen(context)
 end
 
 function update()
-  -- the service pushes every change through the view watch; a slow tick only
-  -- refreshes the dashboard countdown while it is on screen
-  if tab == "dashboard" then render() end
+  -- the service pushes every change through the view watch; the slow tick keeps
+  -- the dashboard countdown honest, and the one-second ticks expire the
+  -- celebration card after ~8 s
+  if tab == "dashboard" or celebrating() then render() end
+end
+
+-- Drop the one-second cadence when the panel goes away; render() reinstates it
+-- the next time a celebration starts.
+function onClose()
+  noctalia.setUpdateInterval(30000)
 end
 
 noctalia.state.watch("view", function()
