@@ -91,7 +91,23 @@ noctalia msg plugin goutamsharma/medo:core all debug-backdate 2026-11-09  # lie 
 noctalia msg plugin goutamsharma/medo:core all debug-reset          # empty list for today
 noctalia msg plugin goutamsharma/medo:core all add '{"title":"buy milk","estimate_min":15}'
 noctalia msg plugin goutamsharma/medo:core all progress '{"id":"t_…","progress":60}'
+noctalia msg plugin goutamsharma/medo:core all park '{"id":"t_…"}'
+noctalia msg plugin goutamsharma/medo:core all promote '{"id":"t_…"}'
+noctalia msg plugin goutamsharma/medo:core all delete '{"id":"t_…"}'
 ```
+
+The panel can be opened on a specific surface, which is also how notifications will land:
+
+```bash
+noctalia msg panel-open goutamsharma/medo:panel add        # focus the capture field
+noctalia msg panel-open goutamsharma/medo:panel pending    # open the Pending tab
+noctalia msg panel-open goutamsharma/medo:panel edit:<id>  # open the editor for a task
+```
+
+Panel shortcuts (`n j k x p d y 1 2`) are declared in `capture_keys` and arrive in
+`onKey` only while no `ui.input` has focus; a panel needs one click before it holds the
+keyboard. `wtype` cannot inject keys into a layer surface, so the shortcut path is verified
+by manifest lint plus manual use, not by automation.
 
 State lives in `~/.local/state/noctalia/plugins/data/goutamsharma/medo/`:
 `tasks.json` (live doc), `tasks.json.bak` (previous generation), `history.json` (closed days),

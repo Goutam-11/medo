@@ -486,6 +486,12 @@ over at the configured hour (including catch-up after downtime), unfinished task
 Pending with a `carried` counter, repeats are recreated, history and 14 backups are written, and
 52 unit tests cover the pure logic. Evidence: `docs/screenshots/phase1-panel.png`.
 
+Phase 2 complete (2026-11-12) — Today and Pending render with inline progress sliders, capture
+with estimate/time/tag, inline editing (title, estimate, due, tag, priority, notes), park/promote,
+delete to Trash, the soft-cap prompt, and keyboard shortcuts declared in the manifest. The panel
+talks to the service only through `noctalia.state["cmd"]`. Evidence:
+`docs/screenshots/phase2-{today,pending,editor}.png`.
+
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
 `docs/DEV.md`.
 

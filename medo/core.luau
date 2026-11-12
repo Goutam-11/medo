@@ -2,9 +2,8 @@
 -- medo core service — the single writer of the task store.
 --
 -- Owns the logical day, rollover, persistence and the `view` snapshot the bar
--- and panel render. Every other entry talks to it through noctalia.state; the
--- panel's command channel lands in Phase 2, the IPC commands below are the
--- development and testing surface.
+-- and panel render. Other entries never touch disk: the panel sends intents
+-- through noctalia.state["cmd"], this service applies them, saves and publishes.
 
 local store = require("./store.luau")
 local logic = require("./logic.luau")
@@ -14,10 +13,13 @@ local DEFAULTS = {
   default_estimate = 20,
   streak_threshold = 70,
   trash_days = 30,
+  cap_enabled = true,
+  daily_cap = 3,
 }
 
 local doc
 local last_published = nil
+local last_cmd_rev = 0
 
 local function now()
   return noctalia.nowMs()
@@ -33,6 +35,10 @@ local function today()
   return logic.logical_day(now(), setting("rollover_hour"))
 end
 
+local function trim(text)
+  return (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
 local function persist()
   local ok, err = store.save(doc)
   if not ok then
@@ -43,7 +49,16 @@ end
 
 -- ── the published snapshot ──────────────────────────────────────────────────
 
-local function view()
+local function tasks_with(status)
+  local rows = {}
+  for _, task in ipairs(doc.tasks) do
+    if task.status == status then rows[#rows + 1] = task end
+  end
+  table.sort(rows, function(a, b) return (tonumber(a.order) or 0) < (tonumber(b.order) or 0) end)
+  return rows
+end
+
+local function counts()
   local done, total, carried, pending = 0, 0, 0, 0
   for _, task in ipairs(doc.tasks) do
     if task.status == "pending" then
@@ -54,17 +69,27 @@ local function view()
       if logic.clamp_progress(task.progress) >= 100 then done = done + 1 end
     end
   end
+  return done, total, carried, pending
+end
 
+local function view()
+  local done, total, carried, pending = counts()
   return {
     day = doc.day,
     done = done,
     total = total,
     score = logic.score(doc.tasks, setting("default_estimate")),
     carried = carried,
-    pending = pending,
+    pending_count = pending,
     streak = (doc.streak and doc.streak.current) or 0,
     revision = doc.revision or 0,
+    now = now(),
     ready = true,
+    rollover_hour = setting("rollover_hour"),
+    cap = { enabled = setting("cap_enabled") ~= false, value = setting("daily_cap") },
+    today_tasks = tasks_with("today"),
+    pending_tasks = tasks_with("pending"),
+    trash_count = #(doc.trash or {}),
   }
 end
 
@@ -74,37 +99,40 @@ local function publish(force)
   noctalia.state.set("view", view())
 end
 
--- ── mutations ───────────────────────────────────────────────────────────────
-
-local function add_task(fields)
-  fields = fields or {}
-  local task = {
-    id = logic.new_id(now()),
-    title = tostring(fields.title or "untitled"),
-    notes = tostring(fields.notes or ""),
-    tag = tostring(fields.tag or ""),
-    priority = fields.priority or "med",
-    estimate_min = tonumber(fields.estimate_min) or 0,
-    due_ms = tonumber(fields.due_ms),
-    lead_min = tonumber(fields.lead_min) or 0,
-    progress = logic.clamp_progress(fields.progress),
-    carried = tonumber(fields.carried) or 0,
-    recurrence = fields.recurrence,
-    status = fields.status or "today",
-    order = #doc.tasks + 1,
-    created_ms = now(),
-    completed_ms = nil,
-  }
-  if task.progress >= 100 then task.completed_ms = now() end
-  doc.tasks[#doc.tasks + 1] = task
-  return task
-end
+-- ── mutations (each returns whether the document changed) ───────────────────
 
 local function find_task(id)
   for _, task in ipairs(doc.tasks) do
     if task.id == id then return task end
   end
   return nil
+end
+
+local function add_task(fields)
+  fields = fields or {}
+  local title = trim(fields.title)
+  if title == "" then return false end
+  local due = tonumber(fields.due_ms)
+  local task = {
+    id = logic.new_id(now()),
+    title = title,
+    notes = tostring(fields.notes or ""),
+    tag = trim(fields.tag),
+    priority = fields.priority or "med",
+    estimate_min = tonumber(fields.estimate_min) or 0,
+    due_ms = (due and due > 0) and due or nil,
+    lead_min = tonumber(fields.lead_min) or 0,
+    progress = logic.clamp_progress(fields.progress),
+    carried = tonumber(fields.carried) or 0,
+    recurrence = fields.recurrence,
+    status = fields.status == "pending" and "pending" or "today",
+    order = #doc.tasks + 1,
+    created_ms = now(),
+    completed_ms = nil,
+  }
+  if task.progress >= 100 then task.completed_ms = now() end
+  doc.tasks[#doc.tasks + 1] = task
+  return true
 end
 
 local function set_progress(id, progress)
@@ -114,6 +142,53 @@ local function set_progress(id, progress)
   task.completed_ms = task.progress >= 100 and (task.completed_ms or now()) or nil
   task.updated_ms = now()
   return true
+end
+
+local function set_status(id, status)
+  local task = find_task(id)
+  if not task or task.status == status then return false end
+  task.status = status
+  task.updated_ms = now()
+  if status == "today" then
+    task.order = #doc.tasks + 1
+  end
+  return true
+end
+
+local function delete_task(id)
+  for index, task in ipairs(doc.tasks) do
+    if task.id == id then
+      table.remove(doc.tasks, index)
+      doc.trash = doc.trash or {}
+      doc.trash[#doc.trash + 1] = { task = task, deleted_ms = now() }
+      return true
+    end
+  end
+  return false
+end
+
+local function edit_task(fields)
+  local task = find_task(fields.id)
+  if not task then return false end
+  if type(fields.title) == "string" and trim(fields.title) ~= "" then task.title = trim(fields.title) end
+  if fields.estimate_min ~= nil then task.estimate_min = tonumber(fields.estimate_min) or 0 end
+  if fields.due_ms ~= nil then
+    local due = tonumber(fields.due_ms) or 0
+    task.due_ms = due > 0 and due or nil
+  end
+  if type(fields.tag) == "string" then task.tag = trim(fields.tag) end
+  if type(fields.priority) == "string" then task.priority = fields.priority end
+  if type(fields.notes) == "string" then task.notes = fields.notes end
+  task.updated_ms = now()
+  return true
+end
+
+local function commit(changed)
+  if changed then
+    persist()
+    publish(true)
+  end
+  return changed
 end
 
 -- ── rollover ────────────────────────────────────────────────────────────────
@@ -187,12 +262,47 @@ function update()
   publish()
 end
 
--- ── IPC surface ─────────────────────────────────────────────────────────────
+-- ── the panel's command channel ─────────────────────────────────────────────
+
+-- Panel intents arrive as { kind, rev, ... }. `rev` is monotonic per panel
+-- session, so a duplicated delivery is applied once.
+local function apply_command(cmd)
+  if type(cmd) ~= "table" then return end
+  local rev = tonumber(cmd.rev) or 0
+  if rev <= last_cmd_rev then return end
+  last_cmd_rev = rev
+
+  local kind = cmd.kind
+  local changed = false
+  if kind == "add" then
+    changed = add_task(cmd)
+  elseif kind == "progress" then
+    changed = set_progress(cmd.id, cmd.progress)
+  elseif kind == "complete" then
+    changed = set_progress(cmd.id, 100)
+  elseif kind == "reopen" then
+    changed = set_progress(cmd.id, 0)
+  elseif kind == "park" then
+    changed = set_status(cmd.id, "pending")
+  elseif kind == "promote" then
+    changed = set_status(cmd.id, "today")
+  elseif kind == "delete" then
+    changed = delete_task(cmd.id)
+  elseif kind == "edit" then
+    changed = edit_task(cmd)
+  end
+  commit(changed)
+end
+
+noctalia.state.watch("cmd", apply_command)
+
+-- ── IPC surface (development and testing) ───────────────────────────────────
 
 local function summary()
-  local snapshot = view()
-  return string.format("%s · %d/%d done · %d%% · carried %d · streak %d",
-    snapshot.day, snapshot.done, snapshot.total, snapshot.score, snapshot.carried, snapshot.streak)
+  local done, total, carried, pending = counts()
+  return string.format("%s · %d/%d done · %d%% · pending %d (carried %d) · streak %d",
+    doc.day, done, total, logic.score(doc.tasks, setting("default_estimate")),
+    pending, carried, (doc.streak and doc.streak.current) or 0)
 end
 
 function onIpc(event, payload)
@@ -222,20 +332,32 @@ function onIpc(event, payload)
   elseif event == "add" and type(payload) == "string" then
     local ok, fields = pcall(noctalia.json.decode, payload)
     if ok and type(fields) == "table" then
-      add_task(fields)
-      persist()
-      publish(true)
+      commit(add_task(fields))
       noctalia.notify("medo", string.format("added '%s'", tostring(fields.title or "task")))
     else
       noctalia.notifyError("medo", "add: payload is not JSON")
     end
+  elseif (event == "park" or event == "promote") and type(payload) == "string" then
+    local ok, fields = pcall(noctalia.json.decode, payload)
+    if ok and type(fields) == "table" then
+      local status = event == "park" and "pending" or "today"
+      if not commit(set_status(fields.id, status)) then
+        noctalia.notifyError("medo", event .. ": unknown task or bad payload")
+      end
+    end
+  elseif event == "delete" and type(payload) == "string" then
+    local ok, fields = pcall(noctalia.json.decode, payload)
+    if ok and type(fields) == "table" then
+      if not commit(delete_task(fields.id)) then
+        noctalia.notifyError("medo", "delete: unknown task or bad payload")
+      end
+    end
   elseif event == "progress" and type(payload) == "string" then
     local ok, fields = pcall(noctalia.json.decode, payload)
-    if ok and type(fields) == "table" and set_progress(fields.id, fields.progress) then
-      persist()
-      publish(true)
-    else
-      noctalia.notifyError("medo", "progress: unknown task or bad payload")
+    if ok and type(fields) == "table" then
+      if not commit(set_progress(fields.id, fields.progress)) then
+        noctalia.notifyError("medo", "progress: unknown task or bad payload")
+      end
     end
   end
 end

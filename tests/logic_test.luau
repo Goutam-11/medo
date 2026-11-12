@@ -38,6 +38,13 @@ eq("04:00 starts today", logic.logical_day(local_ms(2026, 11, 12, 4, 0), 4), "20
 eq("23:59 stays today", logic.logical_day(local_ms(2026, 11, 12, 23, 59), 4), "2026-11-12")
 eq("midnight rollover", logic.logical_day(local_ms(2026, 11, 12, 3, 30), 0), "2026-11-12")
 
+-- "17:00" from 10:30 is 6.5 hours away, same day
+local base = local_ms(2026, 11, 12, 10, 30)
+eq("due later today", logic.due_from_clock("17:00", base), base + 6 * 3600000 + 30 * 60000)
+eq("due already passed rolls to tomorrow", logic.due_from_clock("09:00", base), base + 22 * 3600000 + 30 * 60000)
+eq("due malformed", logic.due_from_clock("tea time", base), nil)
+eq("due invalid hour", logic.due_from_clock("25:00", base), nil)
+
 -- ── weights and score ───────────────────────────────────────────────────────
 
 eq("weight uses estimate", logic.weight({ estimate_min = 45 }, 20), 45)
