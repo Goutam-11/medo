@@ -77,6 +77,134 @@ label_key = "settings.export_dir.label"
 description_key = "settings.export_dir.description"
 default = ""
 
+# ── notifications (Phase 4) ─────────────────────────────────────────────────
+# The service evaluates these on its one-second tick and dedupes them in
+# state.json. Times are local "HH:MM"; a toast fires within 60 minutes of its
+# scheduled time and never replays after a long sleep.
+
+[[setting]]
+key = "notify_morning"
+type = "bool"
+label_key = "settings.notify_morning.label"
+description_key = "settings.notify_morning.description"
+default = true
+
+[[setting]]
+key = "notify_evening"
+type = "bool"
+label_key = "settings.notify_evening.label"
+description_key = "settings.notify_evening.description"
+default = true
+
+[[setting]]
+key = "notify_due"
+type = "bool"
+label_key = "settings.notify_due.label"
+description_key = "settings.notify_due.description"
+default = true
+
+[[setting]]
+key = "notify_lead"
+type = "bool"
+label_key = "settings.notify_lead.label"
+description_key = "settings.notify_lead.description"
+default = true
+
+[[setting]]
+key = "notify_weekly"
+type = "bool"
+label_key = "settings.notify_weekly.label"
+description_key = "settings.notify_weekly.description"
+default = true
+
+[[setting]]
+key = "notify_monthly"
+type = "bool"
+label_key = "settings.notify_monthly.label"
+description_key = "settings.notify_monthly.description"
+default = true
+
+[[setting]]
+key = "notify_atrisk"
+type = "bool"
+label_key = "settings.notify_atrisk.label"
+description_key = "settings.notify_atrisk.description"
+default = true
+
+[[setting]]
+key = "morning_time"
+type = "string"
+label_key = "settings.morning_time.label"
+description_key = "settings.morning_time.description"
+default = "08:00"
+
+[[setting]]
+key = "evening_time"
+type = "string"
+label_key = "settings.evening_time.label"
+description_key = "settings.evening_time.description"
+default = "21:00"
+
+[[setting]]
+key = "atrisk_time"
+type = "string"
+label_key = "settings.atrisk_time.label"
+description_key = "settings.atrisk_time.description"
+default = "15:00"
+
+[[setting]]
+key = "weekly_day"
+type = "select"
+label_key = "settings.weekly_day.label"
+description_key = "settings.weekly_day.description"
+default = "7"
+options = [
+  { value = "1", label_key = "settings.weekly_day.monday" },
+  { value = "2", label_key = "settings.weekly_day.tuesday" },
+  { value = "3", label_key = "settings.weekly_day.wednesday" },
+  { value = "4", label_key = "settings.weekly_day.thursday" },
+  { value = "5", label_key = "settings.weekly_day.friday" },
+  { value = "6", label_key = "settings.weekly_day.saturday" },
+  { value = "7", label_key = "settings.weekly_day.sunday" },
+]
+
+[[setting]]
+key = "weekly_time"
+type = "string"
+label_key = "settings.weekly_time.label"
+description_key = "settings.weekly_time.description"
+default = "20:00"
+
+[[setting]]
+key = "monthly_time"
+type = "string"
+label_key = "settings.monthly_time.label"
+description_key = "settings.monthly_time.description"
+default = "20:00"
+
+[[setting]]
+key = "quiet_start"
+type = "string"
+label_key = "settings.quiet_start.label"
+description_key = "settings.quiet_start.description"
+default = "22:00"
+
+[[setting]]
+key = "quiet_end"
+type = "string"
+label_key = "settings.quiet_end.label"
+description_key = "settings.quiet_end.description"
+default = "07:00"
+
+[[setting]]
+key = "lead_min"
+type = "int"
+min = 0
+max = 120
+label_key = "settings.lead_min.label"
+description_key = "settings.lead_min.description"
+default = 15
+
 # Headless core: owns tasks.json, the logical day, rollover, reminders and
 # reports. Every other entry talks to it through noctalia.state.
 [[service]]

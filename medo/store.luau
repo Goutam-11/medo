@@ -5,6 +5,7 @@
 --   tasks.json           live document (schema 1)
 --   tasks.json.bak       previous generation, used when tasks.json is unreadable
 --   history.json         one aggregate snapshot per closed day
+--   state.json           notification dedupe (day + notified keys)
 --   backups/tasks-<day>.json   last 14 rollover snapshots
 --
 -- Writes are atomic: encode → write .tmp → rotate the current file to .bak →
@@ -15,6 +16,7 @@ local M = {}
 
 local DATA_FILE = "tasks.json"
 local HISTORY_FILE = "history.json"
+local STATE_FILE = "state.json"
 local BACKUP_DIR = "backups"
 local KEEP_BACKUPS = 14
 local SCHEMA = 1
@@ -127,6 +129,32 @@ end
 function M.history_path()
   local dir = M.dir()
   return dir and join(dir, HISTORY_FILE) or nil
+end
+
+-- Notification dedupe state. A missing or unreadable file is an empty state,
+-- never an error: a lost toast is better than a broken service.
+function M.load_state()
+  local dir, err = M.dir()
+  if not dir then return nil, err end
+  local state = read_json(join(dir, STATE_FILE))
+  if type(state) == "table" and state.schema == SCHEMA then
+    if type(state.notified) ~= "table" then state.notified = {} end
+    return state
+  end
+  return { schema = SCHEMA, day = nil, notified = {} }
+end
+
+function M.save_state(state)
+  local dir, err = M.dir()
+  if not dir then return false, err end
+  if type(state) ~= "table" then return false, "state must be a table" end
+  state.schema = SCHEMA
+  return write_atomic(join(dir, STATE_FILE), state)
+end
+
+function M.state_path()
+  local dir = M.dir()
+  return dir and join(dir, STATE_FILE) or nil
 end
 
 -- Resolve the export folder setting. Empty means $XDG_DOCUMENTS_DIR, then
