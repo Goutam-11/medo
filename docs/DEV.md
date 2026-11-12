@@ -104,27 +104,22 @@ noctalia msg panel-open goutamsharma/medo:panel pending    # open the Pending ta
 noctalia msg panel-open goutamsharma/medo:panel edit:<id>  # open the editor for a task
 ```
 
-Keyboard behaviour, learned the hard way:
+Keyboard behaviour, learned the hard way (do not re-litigate this):
 
-- The panel is **capture-first**: `onOpen` focuses the add field, and typing + Enter adds a
-  task. This path is reliable because the focused input asks the host for the keyboard.
-- Panel shortcuts (`n j k x p d y 1 2`) are declared in `capture_keys` and reach `onKey`
-  only while the panel itself holds the keyboard and no `ui.input` has focus. Noctalia panels
-  take focus on demand, so this is a bonus after clicking the panel, not the primary path.
-- Verified with logs: `onKey` does receive chords (`chord=2 pressed=true`). What is *not*
-  reliable is the panel holding focus: in this session the browser repeatedly retook it, so
-  injected presses landed in the browser instead. Do not spend time "fixing" the shortcut
-  plumbing — it is wired; focus is host-owned.
+- A Noctalia attached panel takes keyboard focus **on demand** — only after a click. There is
+  no manifest switch that makes it grab focus on open on niri (`keyboard_focus = "exclusive"`
+  did not change the observed behaviour).
+- `capture_keys`/`onKey` did fire when the panel happened to hold focus, but that state is not
+  reachable reliably, and while an input is focused every printable key goes to the input — so
+  in-panel key shortcuts were removed rather than shipped half-working.
+- The reliable keyboard path is **capture-first**: `onOpen` focuses the add field, so typing +
+  Enter adds a task. Verified end-to-end with typed input.
+- If global shortcuts are wanted, they belong in niri, not the plugin:
 
-State lives in `~/.local/state/noctalia/plugins/data/goutamsharma/medo/`:
-`tasks.json` (live doc), `tasks.json.bak` (previous generation), `history.json` (closed days),
-`backups/tasks-<day>.json` (last 14 rollovers). Delete the directory to start over.
-
-Unit tests are plain Luau and run under `TZ=UTC` so date expectations hold anywhere:
-
-```bash
-make test        # TZ=UTC .tools/luau tests/logic_test.luau
-```
+  ```kdl
+  Mod+T { spawn-sh "noctalia msg panel-open goutamsharma/medo:panel add"; }
+  Mod+Shift+T { spawn-sh "noctalia msg panel-open goutamsharma/medo:panel"; }
+  ```
 
 ## Files
 
