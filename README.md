@@ -5,8 +5,8 @@ A cute, day-scoped task manager for **Noctalia v5** on niri.
 > The day closes itself: carry-overs are deliberate, progress is honest, and every week
 > tells you how you actually worked.
 
-**Status:** planning — the blueprint is locked in [docs/PLAN.md](docs/PLAN.md).
-Implementation starts with Phase 0 (scaffold + dev install).
+**Status:** Phase 0 — the plugin loads in Noctalia, the bar shows `0/0`, and the panel opens.
+The store, tabs and slider land in Phase 1–2. Locked decisions: [docs/PLAN.md](docs/PLAN.md).
 
 ## What it does
 
@@ -25,8 +25,8 @@ Implementation starts with Phase 0 (scaffold + dev install).
 ## Layout
 
 ```
-plugin/     the Noctalia plugin (Luau): manifest, service, panel, bar widget, launcher provider
-docs/       PLAN.md (locked decisions + build plan) · DEV.md (dev source + testing, arrives with Phase 0)
+medo/       the Noctalia plugin (Luau): manifest, service, panel, bar widget, launcher provider
+docs/       PLAN.md (locked decisions + build plan) · DEV.md (dev source, IPC, testing)
 tools/      asset generation (mascot, sounds) and validation
 ```
 
@@ -38,7 +38,7 @@ tools/      asset generation (mascot, sounds) and validation
 
 ## Install
 
-Not published yet. Development install instructions land in `docs/DEV.md` with Phase 0.
+Not published yet. Development install (path source + bar widget) is in [docs/DEV.md](docs/DEV.md).
 
 ## License
 
