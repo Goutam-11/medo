@@ -150,10 +150,10 @@ are documents and developer seams, not UI.
 
 ## License
 
-**TBD — no licence has been chosen for this project.** The plugin code is therefore "all rights
-reserved" by default. Bundled third-party assets are separate: Baloo 2 SemiBold ships under the
-SIL Open Font License 1.1 (`medo/assets/fonts/OFL.txt`); the mascot artwork and sound cues were
-generated for this project by `tools/gen-assets.sh`.
+The medo plugin code is released under the **MIT License** — see [`LICENSE`](LICENSE). Bundled
+third-party assets are separate: Baloo 2 SemiBold ships under the SIL Open Font License 1.1
+(`medo/assets/fonts/OFL.txt`); the mascot artwork and sound cues were generated for this project by
+`tools/gen-assets.sh`.
 
-Choosing a licence is a deliberate act, so it is left open rather than invented — see
-`docs/PLAN.md` §13 and the Phase 5b note.
+The licence was chosen by the project owner on 2026-11-13 (issue #29) and is recorded in
+`medo/plugin.toml` as the SPDX identifier `MIT`.
