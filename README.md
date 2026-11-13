@@ -23,7 +23,8 @@ countdown. The store persists everything, rolls the day over at 04:00 and never 
 - **04:00 rollover with a human decision** — leftovers land in Pending with a `carried ×N`
   badge, and a 21:00 triage lets you retry, park or drop instead of letting a backlog rot.
 - **Weekly and monthly reports** — completion, carryover, on-time rate, average progress at
-  close, streaks, plus deterministic "what to improve" lines and Markdown/JSON export.
+  close, streaks, plus deterministic "what to improve" lines and Markdown/JSON export. The week
+  can start on any day (`week_start`, default Monday); monthly ranges stay calendar months.
 - **Reminders and digests** — morning plan, due-time and lead-time nudges, at-risk ping,
   weekly/monthly report toasts, all quiet-hours aware and deduped across restarts.
 - **Capture from the launcher** — `medo buy milk @17:00 #errand !high`, tokenised and previewed.

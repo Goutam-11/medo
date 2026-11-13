@@ -157,6 +157,13 @@ Reports are **on demand**, not scheduled (that is Phase 4):
 - `view.report.for_revision` is the document revision it was built from. When anything changes
   (a slider, a rollover, the seed fixture) the panel sees the mismatch and re-requests, so a
   report never silently shows stale numbers.
+- The week starts on the `week_start` setting (ISO weekday `1`…`7`, default Monday). It reaches
+  `logic.report` as `opts.week_start` and is published on `view.week_start`; each report carries
+  the start it used, and the panel's cache check includes it, so switching the setting re-requests
+  the report rather than showing the old Monday range. Monthly reports ignore it by design.
+  Set it in Settings → Plugins → medo, or in `~/.local/state/noctalia/settings.toml` under
+  `[plugin_settings."goutamsharma/medo"]` (`week_start = "7"` for Sunday), then
+  `noctalia msg config-reload`.
 - `{ kind = "export", period = …, format = "markdown" | "json" }` rebuilds the report and writes
   `medo-<period>-<end_day>.md|.json` into the `export_dir` setting. Empty (the default) resolves
   to `$XDG_DOCUMENTS_DIR`, then `~/Documents`; `store.write_text` creates the folder. The path of

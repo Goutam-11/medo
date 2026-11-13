@@ -201,6 +201,25 @@ label_key = "settings.monthly_time.label"
 description_key = "settings.monthly_time.description"
 default = "20:00"
 
+# First day of the week for the Reports tab: the range, the day order and the
+# weekly notification's numbers. Monthly ranges are calendar months and ignore
+# it. ISO weekdays match `weekly_day`: 1 = Monday … 7 = Sunday.
+[[setting]]
+key = "week_start"
+type = "select"
+label_key = "settings.week_start.label"
+description_key = "settings.week_start.description"
+default = "1"
+options = [
+  { value = "1", label_key = "settings.week_start.monday" },
+  { value = "2", label_key = "settings.week_start.tuesday" },
+  { value = "3", label_key = "settings.week_start.wednesday" },
+  { value = "4", label_key = "settings.week_start.thursday" },
+  { value = "5", label_key = "settings.week_start.friday" },
+  { value = "6", label_key = "settings.week_start.saturday" },
+  { value = "7", label_key = "settings.week_start.sunday" },
+]
+
 [[setting]]
 key = "quiet_start"
 type = "string"

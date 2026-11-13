@@ -181,6 +181,41 @@ eq("previous week end", select(2, logic.previous_range("weekly", "2026-11-09")),
 eq("previous month start", logic.previous_range("monthly", "2026-11-01"), "2026-10-01")
 eq("previous month end", select(2, logic.previous_range("monthly", "2026-11-01")), "2026-10-31")
 eq("period range rejects typo", logic.period_range("daily", "2026-11-12"), nil)
+
+-- ── calendar ranges with a configurable week start (issue #26) ──────────────
+-- 2026-11-09 is a Monday, so 2026-11-09..15 is the Mon-start week and
+-- 2026-11-08..14 the Sun-start week that contains the same mid-week days.
+
+eq("week start index defaults Monday", logic.week_start_index(nil), 1)
+eq("week start index accepts a string", logic.week_start_index("7"), 7)
+eq("week start index clamps out of range", logic.week_start_index(9), 1)
+eq("week start index keeps Monday", logic.week_start_index(1), 1)
+eq("week start Sunday from a Thursday", logic.week_start_day("2026-11-12", 7), "2026-11-08")
+eq("week start Sunday from a Sunday", logic.week_start_day("2026-11-15", 7), "2026-11-15")
+eq("week start Sunday from a Monday", logic.week_start_day("2026-11-09", 7), "2026-11-08")
+eq("week start Monday from a Sunday", logic.week_start_day("2026-11-15", 1), "2026-11-09")
+eq("week start mid-week same for both", logic.week_start_day("2026-11-11", 1), "2026-11-09")
+eq("week start mid-week Sunday", logic.week_start_day("2026-11-11", 7), "2026-11-08")
+
+eq("sunday week range", logic.period_range("weekly", "2026-11-12", 7), "2026-11-08")
+eq("sunday week range end", select(2, logic.period_range("weekly", "2026-11-12", 7)), "2026-11-14")
+eq("monday week range explicit", logic.period_range("weekly", "2026-11-12", 1), "2026-11-09")
+eq("sunday week range label",
+  logic.range_label(logic.period_range("weekly", "2026-11-12", 7)), "8–14 Nov 2026")
+eq("sunday previous week start", logic.previous_range("weekly", "2026-11-08", 7), "2026-11-01")
+eq("sunday previous week end", select(2, logic.previous_range("weekly", "2026-11-08", 7)), "2026-11-07")
+
+-- 2026-12-01 is a Tuesday: the week straddles the month boundary for both
+-- starts, and the monthly range ignores week_start entirely.
+eq("month boundary monday start", logic.period_range("weekly", "2026-12-01", 1), "2026-11-30")
+eq("month boundary monday end", select(2, logic.period_range("weekly", "2026-12-01", 1)), "2026-12-06")
+eq("month boundary sunday start", logic.period_range("weekly", "2026-12-01", 7), "2026-11-29")
+eq("month boundary sunday end", select(2, logic.period_range("weekly", "2026-12-01", 7)), "2026-12-05")
+eq("month boundary sunday label",
+  logic.range_label(logic.period_range("weekly", "2026-12-01", 7)), "29 Nov – 5 Dec 2026")
+eq("monthly range ignores sunday start", logic.period_range("monthly", "2026-12-01", 7), "2026-12-01")
+eq("monthly end ignores sunday start",
+  select(2, logic.period_range("monthly", "2026-12-01", 7)), "2026-12-31")
 eq("day list length", #logic.day_list("2026-11-09", "2026-11-15"), 7)
 eq("day list backwards", #logic.day_list("2026-11-15", "2026-11-09"), 0)
 
@@ -345,6 +380,49 @@ local capped = logic.report(report_history, report_live, "weekly", "2026-11-12",
 eq("insight limit count", #capped.insights, 2)
 eq("insight limit keeps priority", capped.insights[1].id .. "/" .. capped.insights[2].id,
   "carryover/streak")
+
+-- ── reports: the same week starting on Sunday (issue #26) ───────────────────
+-- Sunday 8 – Saturday 14 Nov: the four Monday-start days plus the 8th, and the
+-- trend now compares against the previous Sun-start week (1–7 Nov).
+local sunday_week = logic.report(report_history, report_live, "weekly", "2026-11-12", {
+  week_start = 7, threshold = 70, cap = 3, limit = 4,
+})
+eq("sunday week label", sunday_week.label, "8–14 Nov 2026")
+eq("sunday week start day", sunday_week.start_day, "2026-11-08")
+eq("sunday week end day", sunday_week.end_day, "2026-11-14")
+eq("sunday week published start", sunday_week.week_start, 7)
+eq("sunday week first day", sunday_week.days[1].day, "2026-11-08")
+eq("sunday week first weekday", sunday_week.days[1].weekday, "Sun")
+eq("sunday week last elapsed day", sunday_week.days[#sunday_week.days].day, "2026-11-12")
+eq("sunday week day count", #sunday_week.days, 5)
+eq("sunday week chart length", #sunday_week.chart, 5)
+eq("sunday week assigned", sunday_week.assigned, 14)
+eq("sunday week done", sunday_week.done, 6)
+eq("sunday week score", sunday_week.score, 57)
+eq("sunday week best day", sunday_week.best.day, "2026-11-10")
+eq("sunday week trend delta", sunday_week.trend.delta, -33)
+eq("sunday week carryover insight", sunday_week.insights[1].key, "insight.carryover")
+
+-- The Monday-start report is unchanged when the setting is passed explicitly,
+-- and a completed week is still seven days for either start.
+local monday_week = logic.report(report_history, report_live, "weekly", "2026-11-12", {
+  week_start = 1, threshold = 70, cap = 3, limit = 4,
+})
+eq("monday explicit chart length", #monday_week.chart, #weekly.chart)
+eq("monday explicit label", monday_week.label, "9–15 Nov 2026")
+eq("sunday completed week chart length",
+  #logic.report(report_history, report_live, "weekly", "2026-11-14", { week_start = 7 }).chart, 7)
+eq("monday completed week chart length",
+  #logic.report(report_history, report_live, "weekly", "2026-11-15", { week_start = 1 }).chart, 7)
+
+-- Monthly reports ignore week_start: same range, same label, same chart length.
+local sunday_month = logic.report(report_history, report_live, "monthly", "2026-11-12", {
+  week_start = 7, threshold = 70, cap = 3, limit = 4,
+})
+eq("monthly label ignores sunday start", sunday_month.label, "1–30 Nov 2026")
+eq("monthly chart length ignores sunday start", #sunday_month.chart, 12)
+eq("monthly first day ignores sunday start", sunday_month.days[1].day, "2026-11-01")
+eq("monthly totals ignore sunday start", sunday_month.assigned, 16)
 
 -- ── reports: the same fixture as a month (1–12 Nov) ─────────────────────────
 

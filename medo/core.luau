@@ -27,6 +27,7 @@ local DEFAULTS = {
   atrisk_time = "15:00",
   weekly_day = "7",
   weekly_time = "20:00",
+  week_start = "1",
   monthly_time = "20:00",
   quiet_start = "22:00",
   quiet_end = "07:00",
@@ -64,6 +65,13 @@ end
 
 local function today()
   return logic.logical_day(now(), setting("rollover_hour"))
+end
+
+-- The week_start setting is an ISO weekday (1 = Monday … 7 = Sunday). The pure
+-- layer normalizes it, and both the report and the published view use that same
+-- number so the panel can tell a stale report from a fresh one.
+local function week_start()
+  return logic.week_start_index(setting("week_start"))
 end
 
 local function trim(text)
@@ -168,6 +176,7 @@ local function view()
     now = now(),
     ready = true,
     rollover_hour = setting("rollover_hour"),
+    week_start = week_start(),
     cap = { enabled = setting("cap_enabled") ~= false, value = setting("daily_cap") },
     today_tasks = tasks_with("today"),
     pending_tasks = tasks_with("pending"),
@@ -189,6 +198,7 @@ end
 local function build_report_for(period, day)
   local chosen = period == "monthly" and "monthly" or "weekly"
   local snapshot = logic.report(history_days, live_snapshot(), chosen, day, {
+    week_start = week_start(),
     threshold = tonumber(setting("streak_threshold")) or 70,
     cap = tonumber(setting("daily_cap")) or 3,
     limit = 4,

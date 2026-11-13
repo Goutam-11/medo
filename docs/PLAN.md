@@ -579,6 +579,16 @@ Two widget settings, `show_count` and `show_mascot_dot`, hide their halves of th
 both restores the count (`logic.bar_visibility`) so the bar never renders empty. Evidence:
 `docs/screenshots/issue28-bar-{default,glyph-only,count-only,fallback}.png`.
 
+Post-5b (2026-11-13) — configurable week start. The manifest gains the `week_start` select
+(Monday…Sunday, default Monday) that §9 promised, and `logic.week_start_day(day, start)`,
+`logic.period_range(period, day, week_start)`, `previous_range` and `report` thread it through:
+the weekly range label, the report's day order and chart, the trend's previous week and the weekly
+notification's numbers all follow the chosen start, while monthly ranges stay calendar months. The
+service publishes `view.week_start` and each report carries `week_start`, so the panel notices a
+stale report after a settings change and re-requests instead of showing the old range. A
+hand-edited or out-of-range value falls back to Monday (`logic.week_start_index`). Pure logic grew
+to 389 tests.
+
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
 `docs/DEV.md`.
 
@@ -587,7 +597,8 @@ Each phase ends with: reload the plugin, verify in the running shell, check the 
 ## 14. Open micro-decisions (defaults I'll take unless you object)
 
 1. Streak counts a day at **score ≥ 70** (setting exists).
-2. Week starts **Monday** in charts and weekly ranges.
+2. Week starts **Monday** by default in charts and weekly ranges; the `week_start`
+   setting (§9) moves it to any day, and monthly ranges stay calendar months.
 3. Monthly report fires the **1st at 20:00**; weekly on **Sunday 20:00**.
 4. Done tasks stay visible in Today until rollover (struck through, collapsible group).
 5. Tags are free-form, suggestions come from existing tags; no fixed taxonomy.

@@ -270,6 +270,7 @@ local function has_report()
     and snapshot.period == period
     and snapshot.day == view.day
     and snapshot.for_revision == view.revision
+    and snapshot.week_start == view.week_start
 end
 
 -- Reports are on demand: the panel asks the service, the service publishes the
@@ -277,7 +278,8 @@ end
 -- while the round-trip is in flight.
 local function request_report(force)
   if tab ~= "reports" then return end
-  local key = tostring(period) .. "@" .. tostring(view.day) .. "@" .. tostring(view.revision)
+  local key = tostring(period) .. "@" .. tostring(view.day) .. "@"
+    .. tostring(view.revision) .. "@" .. tostring(view.week_start)
   if not force and (has_report() or last_report_request == key) then return end
   last_report_request = key
   send("report", { period = period })
@@ -460,7 +462,8 @@ local function reports_body()
   local children = { period_toggle() }
   local report_view = view.report
 
-  if type(report_view) ~= "table" or report_view.period ~= period or report_view.day ~= view.day then
+  if type(report_view) ~= "table" or report_view.period ~= period or report_view.day ~= view.day
+    or report_view.week_start ~= view.week_start then
     children[#children + 1] = ui.column({ gap = 4, padding = 14, radius = 10, fill = "surface_container" }, {
       ui.label({ text = tr("panel.counting_days"), fontSize = 12, color = "on_surface_variant" }),
     })
