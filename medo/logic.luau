@@ -1084,6 +1084,28 @@ function M.next_due(tasks)
   return best
 end
 
+-- The bar tooltip's next-due row (PLAN decision 20): the countdown and the
+-- task title, or nil when nothing is due so the row can be dropped entirely.
+function M.next_due_tooltip(next_due, now_ms)
+  if type(next_due) ~= "table" then return nil end
+  local due = tonumber(next_due.due_ms)
+  if not due or due <= 0 then return nil end
+  return {
+    when = M.countdown_text(due, now_ms),
+    title = tostring(next_due.title or ""),
+  }
+end
+
+-- Bar capsule visibility (PLAN §9): `show_count` and `show_mascot_dot` can each
+-- hide their part, but never both — the bar must not render an empty capsule,
+-- so the count comes back as the fallback. Unset values keep the defaults.
+function M.bar_visibility(show_count, show_mascot_dot)
+  local count = show_count ~= false
+  local dot = show_mascot_dot ~= false
+  if not count and not dot then count = true end
+  return { count = count, dot = dot }
+end
+
 -- Mascot mood for a score. Four bands from PLAN §7.3.
 function M.mascot_state(score)
   local value = tonumber(score) or 0

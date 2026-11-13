@@ -571,6 +571,14 @@ is not late, matching the on-time boundary). A click anywhere on a row opens the
 same `open_editor` path as the pencil button. Evidence:
 `docs/screenshots/issue27-{stars-banner,banner-cleared}.png`.
 
+Post-5b (2026-11-13) — bar polish. The tooltip gains a `Next due` row built from `view.next_due`
+and `logic.countdown_text` (`in 42m · "Finish the report"`), dropped entirely when nothing is due.
+Right-click opens the panel on Pending: because API 43's `togglePanel(panelId)` takes no context,
+the bar hands `panel_context = "pending"` over through shared state and the panel consumes it once.
+Two widget settings, `show_count` and `show_mascot_dot`, hide their halves of the capsule; hiding
+both restores the count (`logic.bar_visibility`) so the bar never renders empty. Evidence:
+`docs/screenshots/issue28-bar-{default,glyph-only,count-only,fallback}.png`.
+
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
 `docs/DEV.md`.
 

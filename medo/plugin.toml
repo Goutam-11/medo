@@ -242,6 +242,20 @@ entry = "bar.luau"
   description_key = "settings.glyph.description"
   default = "checklist"
 
+  [[widget.setting]]
+  key = "show_count"
+  type = "bool"
+  label_key = "settings.show_count.label"
+  description_key = "settings.show_count.description"
+  default = true
+
+  [[widget.setting]]
+  key = "show_mascot_dot"
+  type = "bool"
+  label_key = "settings.show_mascot_dot.label"
+  description_key = "settings.show_mascot_dot.description"
+  default = true
+
 # Launcher capture: `medo buy milk @17:00 #errand !high` adds a task without
 # opening the panel. Kept out of the un-prefixed global search so typing "buy"
 # does not offer to create a task by accident.
