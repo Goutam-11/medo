@@ -22,6 +22,9 @@ countdown. The store persists everything, rolls the day over at 04:00 and never 
   effort-weighted daily score, so a 2-hour task counts more than three one-minute ticks.
 - **04:00 rollover with a human decision** — leftovers land in Pending with a `carried ×N`
   badge, and a 21:00 triage lets you retry, park or drop instead of letting a backlog rot.
+- **Repeats that survive the day** — set a task to `daily` or pick weekdays (Mon–Sun) in the
+  editor; the rollover recreates it fresh at 0 %, and a `↻ M W F` badge shows the rule without
+  opening anything.
 - **Weekly and monthly reports** — completion, carryover, on-time rate, average progress at
   close, streaks, plus deterministic "what to improve" lines and Markdown/JSON export. The week
   can start on any day (`week_start`, default Monday); monthly ranges stay calendar months.

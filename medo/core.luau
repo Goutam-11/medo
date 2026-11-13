@@ -585,6 +585,13 @@ local function edit_task(fields)
   if type(fields.tag) == "string" then task.tag = trim(fields.tag) end
   if type(fields.priority) == "string" then task.priority = fields.priority end
   if type(fields.notes) == "string" then task.notes = fields.notes end
+  -- `recurrence` is tri-state so an edit keeps what the task had unless the
+  -- editor says otherwise: a table sets the rule, `false` clears it, and an
+  -- absent key leaves it alone. (A Lua table cannot carry nil, so the panel
+  -- sends `false` to mean "never".)
+  if fields.recurrence ~= nil then
+    task.recurrence = type(fields.recurrence) == "table" and fields.recurrence or nil
+  end
   task.updated_ms = now()
   return true
 end
@@ -1045,6 +1052,15 @@ function onIpc(event, payload)
       noctalia.notify("medo", string.format("added '%s'", tostring(fields.title or "task")))
     else
       noctalia.notifyError("medo", "add: payload is not JSON")
+    end
+  elseif event == "edit" and type(payload) == "string" then
+    local ok, fields = pcall(noctalia.json.decode, payload)
+    if ok and type(fields) == "table" then
+      if not commit(edit_task(fields)) then
+        noctalia.notifyError("medo", "edit: unknown task or bad payload")
+      end
+    else
+      noctalia.notifyError("medo", "edit: payload is not JSON")
     end
   elseif (event == "park" or event == "promote") and type(payload) == "string" then
     local ok, fields = pcall(noctalia.json.decode, payload)

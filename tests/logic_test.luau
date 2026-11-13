@@ -135,6 +135,56 @@ local doc3 = {
 local plan3 = logic.plan_rollover(doc3, "2026-11-13", 0, 20)
 eq("weekday repeat skipped off-day", #plan3.repeats, 0)
 
+-- ── recurrence helpers (issue #24) ──────────────────────────────────────────
+
+-- The editor's Monday..Sunday toggles map to the stored rule, sorted by ISO day
+-- so the badge and the document agree no matter what order they were clicked.
+local mwf = logic.recurrence_from_selection({ 5, 1, 3 })
+eq("recurrence kind", mwf.kind, "weekdays")
+eq("recurrence days sorted", table.concat(mwf.days, ","), "1,3,5")
+
+local dupes = logic.recurrence_from_selection({ 3, 3, 1 })
+eq("recurrence dedupes", table.concat(dupes.days, ","), "1,3")
+
+local junk = logic.recurrence_from_selection({ 0, 8, "tue", 2 })
+eq("recurrence drops junk", table.concat(junk.days, ","), "2")
+
+eq("recurrence empty selection", logic.recurrence_from_selection({}), nil)
+eq("recurrence nil selection", logic.recurrence_from_selection(nil), nil)
+
+-- Seven toggles is exactly a daily repeat; storing it as weekdays would be the
+-- same schedule under a longer name, and the editor would show it as daily next
+-- time anyway.
+local every_day = logic.recurrence_from_selection({ 7, 6, 5, 4, 3, 2, 1 })
+eq("recurrence all seven is daily", every_day.kind, "daily")
+eq("recurrence all seven has no days", every_day.days, nil)
+
+-- The helpers and the rollover agree: a rule built by the editor repeats on its
+-- day (2026-11-13 is a Friday, ISO 5) and skips the others.
+eq("selection feeds repeats_on", logic.repeats_on({ recurrence = mwf }, "2026-11-13"), true)
+eq("selection feeds repeats_on off-day", logic.repeats_on({ recurrence = mwf }, "2026-11-14"), false)
+eq("selection fires on a Monday", logic.repeats_on({ recurrence = mwf }, "2026-11-16"), true)
+-- the issue's acceptance case: [1,3,5] rolled onto a Tuesday (ISO 2) copies nothing
+eq("selection skips a Tuesday", logic.repeats_on({ recurrence = mwf }, "2026-11-17"), false)
+eq("daily selection feeds repeats_on", logic.repeats_on({ recurrence = every_day }, "2026-11-14"), true)
+
+-- ── recurrence badge ────────────────────────────────────────────────────────
+
+eq("label daily", logic.recurrence_label({ kind = "daily" }), "↻")
+eq("label weekdays", logic.recurrence_label(mwf), "↻ M W F")
+eq("label weekdays unsorted", logic.recurrence_label({ kind = "weekdays", days = { 3, 1 } }), "↻ M W")
+eq("label weekend", logic.recurrence_label({ kind = "weekdays", days = { 6, 7 } }), "↻ S S")
+eq("label all seven", logic.recurrence_label({ kind = "weekdays", days = { 1, 2, 3, 4, 5, 6, 7 } }), "↻")
+eq("label never", logic.recurrence_label(nil), nil)
+eq("label empty weekdays", logic.recurrence_label({ kind = "weekdays", days = {} }), nil)
+eq("label unknown kind", logic.recurrence_label({ kind = "monthly" }), nil)
+eq("label from selection", logic.recurrence_label(logic.recurrence_from_selection({ 1, 3, 5 })), "↻ M W F")
+
+eq("weekday initial monday", logic.weekday_initial(1), "M")
+eq("weekday initial friday", logic.weekday_initial(5), "F")
+eq("weekday initial sunday", logic.weekday_initial(7), "S")
+eq("weekday initial out of range", logic.weekday_initial(0), nil)
+
 -- ── trash, streak, ids ──────────────────────────────────────────────────────
 
 local now = 10 * 86400000

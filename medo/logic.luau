@@ -545,6 +545,56 @@ function M.repeats_on(task, day)
   return false
 end
 
+-- Weekday initials are symbols, not copy: ISO 1..7 → M T W T F S S. They are
+-- pinned here (instead of asking os.date for %a) so a badge reads the same in
+-- every locale, and they never need a translation.
+local WEEKDAY_INITIALS = { "M", "T", "W", "T", "F", "S", "S" }
+
+function M.weekday_initial(day)
+  return WEEKDAY_INITIALS[math.floor(tonumber(day) or 0)]
+end
+
+-- ISO 1..7, de-duplicated and sorted. Anything else (0, 8, "tue", nil) is
+-- dropped rather than coerced, so a bad toggle can never store a weekday that
+-- `repeats_on` would never match.
+local function normalize_days(values)
+  local seen, days = {}, {}
+  for _, value in ipairs(values or {}) do
+    local day = math.floor(tonumber(value) or 0)
+    if day >= 1 and day <= 7 and not seen[day] then
+      seen[day] = true
+      days[#days + 1] = day
+    end
+  end
+  table.sort(days)
+  return days
+end
+
+-- The editor's Monday..Sunday toggles → the stored rule. No selection means
+-- "never" (nil, schema 1 has no "never" kind). All seven days *is* daily, so it
+-- is stored as the bare kind instead of a weekdays list that repeats every day.
+function M.recurrence_from_selection(selected_indices)
+  local days = normalize_days(selected_indices)
+  if #days == 0 then return nil end
+  if #days == 7 then return { kind = "daily" } end
+  return { kind = "weekdays", days = days }
+end
+
+-- The row badge: "↻" for a daily repeat, "↻ M W F" for chosen weekdays, nil
+-- when nothing repeats. A weekdays rule with no usable day repeats never, so it
+-- gets no badge either. Seven days reads as daily, matching the editor.
+function M.recurrence_label(recurrence)
+  if type(recurrence) ~= "table" then return nil end
+  if recurrence.kind == "daily" then return "↻" end
+  if recurrence.kind ~= "weekdays" then return nil end
+  local days = normalize_days(recurrence.days)
+  if #days == 0 then return nil end
+  if #days == 7 then return "↻" end
+  local letters = {}
+  for _, day in ipairs(days) do letters[#letters + 1] = WEEKDAY_INITIALS[day] end
+  return "↻ " .. table.concat(letters, " ")
+end
+
 -- What happens to the list when the day closes:
 --   * finished tasks are archived (recorded in the snapshot, dropped here),
 --   * unfinished tasks move to Pending and gain a carried mark,

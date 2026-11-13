@@ -34,6 +34,24 @@ local ESTIMATES = { 15, 30, 45, 60, 90 }
 local ESTIMATE_LABELS = { "15m", "30m", "45m", "60m", "90m" }
 local PRIORITIES = { "low", "med", "high" }
 
+-- Repeat control (issue #24). The three modes are copy keys; the Monday..Sunday
+-- toggles take their letters from logic.weekday_initial so the editor and the
+-- row badge cannot drift, and reuse the existing weekday copy for their tooltips.
+local REPEAT_MODES = {
+  { mode = "never", key = "panel.repeat.never" },
+  { mode = "daily", key = "panel.repeat.daily" },
+  { mode = "weekdays", key = "panel.repeat.weekdays" },
+}
+local WEEKDAY_NAME_KEYS = {
+  "settings.weekly_day.monday",
+  "settings.weekly_day.tuesday",
+  "settings.weekly_day.wednesday",
+  "settings.weekly_day.thursday",
+  "settings.weekly_day.friday",
+  "settings.weekly_day.saturday",
+  "settings.weekly_day.sunday",
+}
+
 local view = { today_tasks = {}, pending_tasks = {}, cap = { enabled = true, value = 3 } }
 local tab = "today"
 local period = "weekly"
@@ -499,12 +517,46 @@ end
 -- forward declaration: rows embed the editor, which is defined below them
 local editor_node
 
+-- Editor draft ↔ stored recurrence. `never` keeps no rule (schema 1 has no
+-- "never" kind), `daily` is the bare kind, and `weekdays` keeps a day set that
+-- the Monday..Sunday toggles flip.
+local function repeat_draft(recurrence)
+  local draft = { mode = "never", days = {} }
+  if type(recurrence) ~= "table" then return draft end
+  if recurrence.kind == "daily" then
+    draft.mode = "daily"
+  elseif recurrence.kind == "weekdays" then
+    draft.mode = "weekdays"
+    for _, day in ipairs(recurrence.days or {}) do
+      local value = math.floor(tonumber(day) or 0)
+      if value >= 1 and value <= 7 then draft.days[value] = true end
+    end
+  end
+  return draft
+end
+
+-- What the editor sends back on save. `false` means "never" (clear the rule);
+-- an absent key would mean "leave it alone", which is how an edit of another
+-- field keeps its repeat.
+local function draft_recurrence(draft)
+  if draft.repeat_mode == "daily" then return { kind = "daily" } end
+  if draft.repeat_mode == "weekdays" then
+    local picked = {}
+    for day = 1, 7 do
+      if draft.days[day] then picked[#picked + 1] = day end
+    end
+    return logic.recurrence_from_selection(picked)
+  end
+  return false
+end
+
 -- The pencil button and a click anywhere on the row share this one path, so the
 -- footer's "click a row to edit" has a single implementation to trust.
 local function open_editor(task, index)
   if editing and editing.id == task.id then return end
   selected = index or selected
   local due = due_text(task)
+  local repeat_state = repeat_draft(task.recurrence)
   editing = {
     id = task.id,
     epoch = (editing and editing.epoch or 0) + 1,
@@ -515,6 +567,8 @@ local function open_editor(task, index)
       tag = task.tag or "",
       priority = priority_index(task.priority),
       notes = task.notes or "",
+      repeat_mode = repeat_state.mode,
+      days = repeat_state.days,
     },
   }
   render()
@@ -571,6 +625,9 @@ local function row_node(task, index)
   end
   if due then top[#top + 1] = badge(due, is_overdue(task) and "error" or "on_surface_variant") end
   if (tonumber(task.carried) or 0) > 0 then top[#top + 1] = badge("×" .. tostring(task.carried), "tertiary") end
+  -- PLAN §7.2: a repeating task is visible without opening the editor.
+  local repeat_text = logic.recurrence_label(task.recurrence)
+  if repeat_text then top[#top + 1] = badge(repeat_text, "tertiary") end
   if task.tag and task.tag ~= "" then top[#top + 1] = badge("#" .. task.tag, "on_surface_variant") end
   for _, action in ipairs(actions) do top[#top + 1] = action end
 
@@ -660,6 +717,9 @@ editor_node = function(task)
       tag = draft.tag,
       priority = PRIORITIES[draft.priority] or "med",
       notes = draft.notes,
+      -- always carried, so editing another field keeps the repeat; `false`
+      -- clears it and a table sets it (see core.edit_task)
+      recurrence = draft_recurrence(draft) or false,
     })
     editing = nil
     render()
@@ -672,7 +732,50 @@ editor_node = function(task)
     onClick = save_draft,
   })
 
-  return ui.column({ gap = 6, padding = 8, radius = 8, fill = "surface_container_highest" }, {
+  -- Repeat control: never / daily / weekdays, plus Monday..Sunday toggles that
+  -- only exist while `weekdays` is picked (ISO 1..7, matching os.date).
+  local repeat_row = { ui.label({ text = tr("panel.repeat"), fontSize = 11, color = "on_surface_variant" }) }
+  for _, option in ipairs(REPEAT_MODES) do
+    -- the active mode is a filled (secondary) button: `selected` alone is not
+    -- documented to paint a text button, so the variant carries the state too
+    local active = draft.repeat_mode == option.mode
+    repeat_row[#repeat_row + 1] = ui.button({
+      key = "edit-repeat-" .. option.mode .. "-" .. epoch,
+      text = tr(option.key),
+      variant = active and "secondary" or "ghost",
+      selected = active,
+      controlSize = "sm",
+      onClick = function()
+        draft.repeat_mode = option.mode
+        render()
+      end,
+    })
+  end
+
+  local weekday_row = nil
+  if draft.repeat_mode == "weekdays" then
+    local toggles = {}
+    for day = 1, 7 do
+      local active = draft.days[day] == true
+      toggles[#toggles + 1] = ui.button({
+        key = "edit-weekday-" .. day .. "-" .. epoch,
+        text = logic.weekday_initial(day),
+        variant = active and "secondary" or "ghost",
+        selected = active,
+        controlSize = "sm",
+        tooltip = tr(WEEKDAY_NAME_KEYS[day]),
+        onClick = function()
+          draft.days[day] = not draft.days[day]
+          render()
+        end,
+      })
+    end
+    weekday_row = ui.row({ gap = 4, align = "center" }, toggles)
+  end
+
+  -- built in order because the weekday row is conditional: a nil hole in a
+  -- literal would truncate the children after it
+  local children = {
     ui.input({
       key = "edit-title-" .. epoch,
       value = draft.title,
@@ -723,17 +826,22 @@ editor_node = function(task)
         onChange = function(index) draft.priority = tonumber(index) + 1 end,
       }),
     }),
-    ui.input({
-      key = "edit-notes-" .. epoch,
-      value = draft.notes,
-      placeholder = tr("panel.field.notes"),
-      multiline = true,
-      height = 52,
-      controlSize = "sm",
-      onChange = field_changed(function(value) draft.notes = value end),
-    }),
-    ui.row({ gap = 6, align = "center" }, { pending_button, ui.spacer({ flexGrow = 1 }), cancel, save }),
+    ui.row({ gap = 6, align = "center" }, repeat_row),
+  }
+  if weekday_row then children[#children + 1] = weekday_row end
+  children[#children + 1] = ui.input({
+    key = "edit-notes-" .. epoch,
+    value = draft.notes,
+    placeholder = tr("panel.field.notes"),
+    multiline = true,
+    height = 52,
+    controlSize = "sm",
+    onChange = field_changed(function(value) draft.notes = value end),
   })
+  children[#children + 1] = ui.row({ gap = 6, align = "center" },
+    { pending_button, ui.spacer({ flexGrow = 1 }), cancel, save })
+
+  return ui.column({ gap = 6, padding = 8, radius = 8, fill = "surface_container_highest" }, children)
 end
 
 -- ── add form ────────────────────────────────────────────────────────────────
@@ -1349,6 +1457,7 @@ function onOpen(context)
       for index, task in ipairs(view.today_tasks) do
         if task.id == task_id then
           selected = index
+          local repeat_state = repeat_draft(task.recurrence)
           editing = {
             id = task.id,
             epoch = 1,
@@ -1359,6 +1468,8 @@ function onOpen(context)
               tag = task.tag or "",
               priority = priority_index(task.priority),
               notes = task.notes or "",
+              repeat_mode = repeat_state.mode,
+              days = repeat_state.days,
             },
           }
         end

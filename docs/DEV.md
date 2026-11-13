@@ -100,6 +100,7 @@ noctalia msg plugin goutamsharma/medo:core all debug-reset-state     # forget to
 noctalia msg plugin goutamsharma/medo:core all debug-reset           # empty list for today
 noctalia msg plugin goutamsharma/medo:core all debug-reset-history   # empty history.json
 noctalia msg plugin goutamsharma/medo:core all add '{"title":"buy milk","estimate_min":15}'
+noctalia msg plugin goutamsharma/medo:core all edit '{"id":"t_…","title":"buy milk"}'   # partial: omitted fields are kept
 noctalia msg plugin goutamsharma/medo:core all progress '{"id":"t_…","progress":60}'
 noctalia msg plugin goutamsharma/medo:core all park '{"id":"t_…"}'
 noctalia msg plugin goutamsharma/medo:core all promote '{"id":"t_…"}'
@@ -359,6 +360,46 @@ still the only *automatic* purge.
   **`Stats`** — "Dashboard" clipped at this width, "Pending 1"/"Reports" did not (measured on
   5.4.1, not guessed).
 - `debug-seed-trash` adds three rows aged 0/3/27 days for the countdown screenshot.
+
+## Repeats (issue #24)
+
+Decision 15 shipped the rollover recreation first, so only a hand-written IPC payload could create
+a repeat. The editor is now the way in, and the rule is the `recurrence` field schema 1 already
+had — **no migration**.
+
+- **Editor control.** A `repeat` row sits under the estimate/time/tag/priority line with three
+  modes: `never` / `daily` / `weekdays`. Picking `weekdays` reveals seven `M T W T F S S` toggles
+  (ISO 1..7 — the same numbering `os.date` and `logic.weekday_initial` use) with the full weekday
+  names as tooltips; picking another mode hides them. The buttons are `ui.button` with `selected`
+  and re-render from the draft, because the declarative UI has no segmented control at API 43.
+- **Pure mapping.** `logic.recurrence_from_selection(days)` turns toggles into the stored rule:
+  de-duplicated, sorted, out-of-range days dropped, no selection → `nil` ("never"), and all seven
+  days → `{ kind = "daily" }` because that *is* a daily repeat (the editor would show it as daily
+  next time anyway). `logic.recurrence_label(recurrence)` is the row badge — `↻`, `↻ M W F`, or
+  `nil` — and `logic.weekday_initial(day)` is the one place the weekday letters live, so the badge
+  and the toggles cannot drift. All three are unit-tested (daily, weekdays, empty, all seven,
+  label text).
+- **Round-trip.** `open_editor` and `panel-open … edit:<id>` both seed the draft from
+  `task.recurrence`, and `save` always sends `recurrence`. On the service side `edit` treats it as
+  tri-state: a table sets the rule, `false` clears it, an absent key leaves it alone. That is what
+  lets the panel turn a repeat off while an older caller editing only the title cannot wipe one.
+  A Lua table cannot carry `nil`, so "never" travels as `false`.
+- **Test seam.** `edit` is also an IPC event, mirroring `add`, so a repeat can be set without a
+  pointer (the editor itself cannot be clicked from the CLI):
+
+  ```bash
+  noctalia msg plugin goutamsharma/medo:core all add '{"title":"gym","estimate_min":30,"recurrence":{"kind":"daily"}}'
+  noctalia msg plugin goutamsharma/medo:core all edit '{"id":"t_…","title":"gym (edited)"}'      # repeat kept
+  noctalia msg plugin goutamsharma/medo:core all edit '{"id":"t_…","recurrence":{"kind":"weekdays","days":[1,3,5]}}'
+  noctalia msg plugin goutamsharma/medo:core all edit '{"id":"t_…","recurrence":false}'          # never
+  ```
+
+  Then `debug-rollover`: a matching repeat is copied with `progress = 0`, `carried = 0` and
+  `status = "today"` (its `due_ms` shifted by the same clock time), and a weekday rule that does
+  not match the new day copies nothing — `logic.repeats_on` is the same rule the rollover uses.
+- **Badge.** `↻` or `↻ M W F` rides in the row's badge strip before the tag, so a repeat is
+  visible without opening the editor. Seven days reads as `↻` for the same reason it stores as
+  daily.
 
 ## Assets, sound and the celebration (Phase 4c)
 
