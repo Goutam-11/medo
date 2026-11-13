@@ -46,6 +46,8 @@ local add_focus = false
 local add_epoch = 0
 local cap_pending = nil
 local seq = 0
+-- ids of the three focused tasks for this render (PLAN §3.4)
+local focus = {}
 
 -- ── channel + helpers ───────────────────────────────────────────────────────
 
@@ -494,6 +496,27 @@ end
 -- forward declaration: rows embed the editor, which is defined below them
 local editor_node
 
+-- The pencil button and a click anywhere on the row share this one path, so the
+-- footer's "click a row to edit" has a single implementation to trust.
+local function open_editor(task, index)
+  if editing and editing.id == task.id then return end
+  selected = index or selected
+  local due = due_text(task)
+  editing = {
+    id = task.id,
+    epoch = (editing and editing.epoch or 0) + 1,
+    draft = {
+      title = task.title,
+      estimate = estimate_index(task.estimate_min),
+      due = due and due:match("^%d%d:%d%d$") and due or "",
+      tag = task.tag or "",
+      priority = priority_index(task.priority),
+      notes = task.notes or "",
+    },
+  }
+  render()
+end
+
 local function row_node(task, index)
   local done = progress_of(task) >= 100
   local selected_row = index == selected
@@ -514,21 +537,7 @@ local function row_node(task, index)
     variant = "ghost",
     controlSize = "sm",
     tooltip = tr("panel.tip.edit"),
-    onClick = function()
-      editing = {
-        id = task.id,
-        epoch = (editing and editing.epoch or 0) + 1,
-        draft = {
-          title = task.title,
-          estimate = estimate_index(task.estimate_min),
-          due = due and due:match("^%d%d:%d%d$") and due or "",
-          tag = task.tag or "",
-          priority = priority_index(task.priority),
-          notes = task.notes or "",
-        },
-      }
-      render()
-    end,
+    onClick = function() open_editor(task, index) end,
   })
   actions[#actions + 1] = ui.button({
     glyph = "trash",
@@ -552,6 +561,11 @@ local function row_node(task, index)
       color = done and "on_surface_variant" or "on_surface",
     }),
   }
+  -- PLAN §3.4: the same three tasks whose completion `snapshot.top3_done`
+  -- counts carry the focus star.
+  if focus[task.id] then
+    top[#top + 1] = ui.glyph({ name = "star-filled", size = 12, color = "tertiary" })
+  end
   if due then top[#top + 1] = badge(due, is_overdue(task) and "error" or "on_surface_variant") end
   if (tonumber(task.carried) or 0) > 0 then top[#top + 1] = badge("×" .. tostring(task.carried), "tertiary") end
   if task.tag and task.tag ~= "" then top[#top + 1] = badge("#" .. task.tag, "on_surface_variant") end
@@ -598,6 +612,7 @@ local function row_node(task, index)
     fill = selected_row and "surface_container_high" or "surface_container",
     border = selected_row and "primary" or nil,
     borderWidth = selected_row and 1 or 0,
+    onClick = function() open_editor(task, index) end,
   }, children)
 end
 
@@ -1105,9 +1120,31 @@ local function tab_strip()
   })
 end
 
+-- PLAN §7.2: only Today's unfinished tasks count, and only once the deadline
+-- has actually gone by. The panel reads its own clock so the banner appears
+-- without waiting for a document revision.
+local function overdue_banner()
+  local count = logic.overdue_count(view.today_tasks, noctalia.nowMs())
+  if count <= 0 then return nil end
+  return ui.row({ gap = 6, align = "center", padding = 8, radius = 10, fill = "surface_container" }, {
+    ui.glyph({ name = "alert-triangle", size = 14, color = "error" }),
+    ui.label({
+      text = noctalia.trp("panel.overdue", count, { count = count }),
+      fontSize = 11,
+      color = "error",
+      flexGrow = 1,
+      maxLines = 1,
+    }),
+  })
+end
+
 local function list_body()
   local rows = current_rows()
   local children = {}
+  if tab == "today" then
+    local banner = overdue_banner()
+    if banner then children[#children + 1] = banner end
+  end
   if #rows == 0 then
     children[#children + 1] = ui.column({ gap = 4, padding = 14, radius = 10, fill = "surface_container" }, {
       ui.label({
@@ -1230,6 +1267,8 @@ end
 
 function render()
   read_view()
+  focus = {}
+  for _, id in ipairs(logic.focus_ids(view.today_tasks)) do focus[id] = true end
   local rows = current_rows()
   if #rows == 0 then selected = 1 elseif selected > #rows then selected = #rows end
 

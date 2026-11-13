@@ -141,6 +141,8 @@
   "panel.export_json": "Export JSON",
   "panel.footer.today": "{count} today · {planned} planned · {score}% · {carried} carried",
   "panel.footer.hint": "type to add · Enter saves · click a row to edit",
+  "panel.overdue.one": "{count} task is late. Not judging. (a little.)",
+  "panel.overdue.other": "{count} tasks are late. Not judging. (a little.)",
   "panel.back_to_list": "Back to the list",
   "panel.triage.title": "evening triage",
   "panel.triage.retry": "Retry",

@@ -563,6 +563,14 @@ invented. Contract drift fixed: decision 16 and §7.2 now describe the capture-f
 shipped, §11 shows the real tree and the repo-root path source. Evidence:
 `docs/screenshots/phase{4,5}-*.png`, `make check` green.
 
+Post-5b (2026-11-13) — the panel keeps its promises. The first three Today tasks carry the focus
+star, and `logic.focus_ids` is the same rule `snapshot` freezes as `top3_done`, so the stars and the
+report agree by construction. An overdue banner counts unfinished past-due Today tasks through the
+plural `panel.overdue` copy; `logic.overdue_count` is strict at the deadline (exactly at `due_ms`
+is not late, matching the on-time boundary). A click anywhere on a row opens the editor through the
+same `open_editor` path as the pencil button. Evidence:
+`docs/screenshots/issue27-{stars-banner,banner-cleared}.png`.
+
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
 `docs/DEV.md`.
 

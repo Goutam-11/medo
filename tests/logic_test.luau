@@ -212,6 +212,64 @@ eq("snapshot untagged bucket", tagged.by_tag.untagged, 1)
 eq("snapshot ignores pending in tags", tagged.by_tag.work + tagged.by_tag.life + tagged.by_tag.untagged, 4)
 eq("snapshot top3 done", tagged.top3_done, 2)
 
+-- ── focus badge (PLAN §3.4) ─────────────────────────────────────────────────
+
+local function ids(list)
+  return table.concat(list, ",")
+end
+
+eq("focus ids fewer than three", ids(logic.focus_ids({
+  { id = "a", status = "today", order = 2 },
+  { id = "b", status = "today", order = 1 },
+})), "b,a")
+eq("focus ids first three in list order", ids(logic.focus_ids({
+  { id = "a", status = "today", order = 1 },
+  { id = "b", status = "today", order = 2 },
+  { id = "c", status = "today", order = 3 },
+  { id = "d", status = "today", order = 4 },
+})), "a,b,c")
+eq("focus ids skip pending", ids(logic.focus_ids({
+  { id = "parked", status = "pending", order = 1 },
+  { id = "a", status = "today", order = 2 },
+  { id = "b", status = "done", order = 3 },
+})), "a,b")
+eq("focus ids keep done tasks in the top three", ids(logic.focus_ids({
+  { id = "a", status = "today", order = 1, progress = 100 },
+  { id = "b", status = "today", order = 2, progress = 40 },
+  { id = "c", status = "done", order = 3, progress = 100 },
+  { id = "d", status = "today", order = 4, progress = 0 },
+})), "a,b,c")
+eq("focus ids empty", #logic.focus_ids({}), 0)
+eq("focus ids handles no tasks", #logic.focus_ids(), 0)
+
+-- ── overdue banner (PLAN §7.2) ──────────────────────────────────────────────
+
+local overdue_tasks = {
+  { id = "late", status = "today", progress = 0, due_ms = 1000 },
+  { id = "exact", status = "today", progress = 0, due_ms = 2000 },
+  { id = "done", status = "today", progress = 100, due_ms = 1000 },
+  { id = "pending", status = "pending", progress = 0, due_ms = 1000 },
+  { id = "future", status = "today", progress = 0, due_ms = 3000 },
+  { id = "none", status = "today", progress = 0 },
+}
+eq("overdue count", logic.overdue_count(overdue_tasks, 2000), 1)
+eq("overdue boundary exactly due", logic.overdue_count({
+  { status = "today", progress = 0, due_ms = 2000 },
+}, 2000), 0)
+eq("overdue one millisecond late", logic.overdue_count({
+  { status = "today", progress = 0, due_ms = 1999 },
+}, 2000), 1)
+eq("overdue excludes done tasks", logic.overdue_count({
+  { status = "today", progress = 100, due_ms = 1 },
+}, 1000), 0)
+eq("overdue excludes pending tasks", logic.overdue_count({
+  { status = "pending", progress = 0, due_ms = 1 },
+}, 1000), 0)
+eq("overdue without a deadline", logic.overdue_count({
+  { status = "today", progress = 0 },
+}, 1000), 0)
+eq("overdue empty", logic.overdue_count(nil, 1000), 0)
+
 -- ── reports: hand-computed week (Mon 9 – Sun 15 Nov 2026) ───────────────────
 
 local function history_snapshot(day, assigned, done, effort_assigned, effort_done,
