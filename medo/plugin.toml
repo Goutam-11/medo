@@ -11,6 +11,7 @@ name = "medo"
 version = "0.2.0"
 plugin_api = 43
 author = "goutamsharma"
+license = "MIT"
 icon = "checklist"
 description = "A cute day-scoped task manager: progress sliders, a 04:00 rollover with a 21:00 triage, reminders, a launcher and weekly efficiency reports."
 tags = ["bar", "panel", "service", "launcher", "productivity", "tasks"]

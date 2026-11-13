@@ -589,9 +589,10 @@ launcher, notifications and insights now resolves through `noctalia.tr`/`trp` fr
 `translations/en.json`; the pure layer returns copy **keys** and their numbers (insight rules carry
 a `plural` count for `trp`), and `tools/check_manifest.py` fails CI when a key used in the code is
 missing from the catalogue. README rewritten for install (path source + community layout),
-features, data locations, export behaviour and requirements; version bumped to **0.2.0**; the
-licence question stays **TBD** because choosing one is the owner's decision, documented rather than
-invented. Contract drift fixed: decision 16 and §7.2 now describe the capture-first keyboard that
+features, data locations, export behaviour and requirements; version bumped to **0.2.0**. The
+licence question was left **TBD** at Phase 5b because choosing one is the owner's decision; it was
+decided as **MIT** on 2026-11-13 (issue #29) — the LICENSE file, README and manifest now say so.
+Contract drift fixed: decision 16 and §7.2 now describe the capture-first keyboard that
 shipped, §11 shows the real tree and the repo-root path source. Evidence:
 `docs/screenshots/phase{4,5}-*.png`, `make check` green.
 
