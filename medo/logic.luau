@@ -101,12 +101,23 @@ function M.weekday_name(day, short)
   return (short and WEEKDAYS_SHORT or WEEKDAYS)[weekday]
 end
 
--- Monday of the week containing `day` (PLAN open decision 2).
-function M.week_start_day(day)
+-- The `week_start` setting is an ISO weekday (1 = Monday … 7 = Sunday). Keep
+-- it inside that range so a hand-edited settings.toml can never build a range
+-- off the calendar; anything else falls back to Monday (PLAN open decision 2).
+function M.week_start_index(start)
+  local value = math.floor(tonumber(start) or 1)
+  if value < 1 or value > 7 then return 1 end
+  return value
+end
+
+-- First day of the week containing `day`, starting on ISO weekday `start`
+-- (default Monday). PLAN open decision 2 fixed the default; issue #26 makes it
+-- a setting, so charts, ranges and the report's day order all follow it.
+function M.week_start_day(day, start)
   local ordinal = M.to_ordinal(day)
   local weekday = M.weekday_iso(day)
   if not ordinal or not weekday then return nil end
-  return M.from_ordinal(ordinal - (weekday - 1))
+  return M.from_ordinal(ordinal - ((weekday - M.week_start_index(start)) % 7))
 end
 
 function M.month_start_day(day)
@@ -133,10 +144,11 @@ function M.day_list(start_day, end_day)
   return days
 end
 
--- Start and end of the report period containing `day`.
-function M.period_range(period, day)
+-- Start and end of the report period containing `day`. `week_start` only
+-- affects the weekly period; monthly ranges are calendar months, unaffected.
+function M.period_range(period, day, week_start)
   if period == "weekly" then
-    local start_day = M.week_start_day(day)
+    local start_day = M.week_start_day(day, week_start)
     if not start_day then return nil end
     return start_day, M.from_ordinal(M.to_ordinal(start_day) + 6)
   elseif period == "monthly" then
@@ -148,12 +160,12 @@ function M.period_range(period, day)
 end
 
 -- The period immediately before the one that starts at `start_day`.
-function M.previous_range(period, start_day)
+function M.previous_range(period, start_day, week_start)
   local last = M.to_ordinal(start_day)
   if not last then return nil end
   local end_day = M.from_ordinal(last - 1)
   if period == "weekly" then
-    return M.week_start_day(end_day), end_day
+    return M.week_start_day(end_day, week_start), end_day
   elseif period == "monthly" then
     return M.month_start_day(end_day), end_day
   end
@@ -870,10 +882,13 @@ end
 
 -- Build the weekly or monthly report. `today` is the core's logical day; no
 -- clock is read here. History is the source for closed days, the caller's live
--- snapshot overrides the current day.
+-- snapshot overrides the current day. `opts.week_start` is the ISO weekday the
+-- week begins on (default Monday) and only moves the weekly range, the day
+-- order and the trend's previous week; the monthly range is a calendar month.
 function M.report(history_days, live_snapshot, period, today, opts)
   opts = opts or {}
-  local start_day, end_day = M.period_range(period, today)
+  local week_start = M.week_start_index(opts.week_start)
+  local start_day, end_day = M.period_range(period, today, week_start)
   if not start_day then return nil end
 
   local by_day = {}
@@ -921,7 +936,7 @@ function M.report(history_days, live_snapshot, period, today, opts)
   end
 
   local previous_score = nil
-  local previous_start, previous_end = M.previous_range(period, start_day)
+  local previous_start, previous_end = M.previous_range(period, start_day, week_start)
   if previous_start then
     local previous_aggregate = empty_aggregate()
     for _, snapshot in ipairs(history_days or {}) do
@@ -938,6 +953,7 @@ function M.report(history_days, live_snapshot, period, today, opts)
   local result = {
     period = period,
     day = today,
+    week_start = week_start,
     start_day = start_day,
     end_day = end_day,
     label = M.range_label(start_day, end_day),
