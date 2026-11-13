@@ -78,9 +78,11 @@ The bar capsule shows the Medo glyph and `done/total`. Its settings are `glyph`,
 carries the next due task with a countdown (`in 42m · "Finish the report"`). Left-click opens
 Today; right-click opens Pending.
 
-**Community layout.** To install a release tarball by hand, copy the contents of `medo/` (the
-directory holding `plugin.toml`) to `~/.local/share/noctalia/plugins/goutamsharma/medo/`, then
-`noctalia msg plugins enable goutamsharma/medo`. `plugin.toml` changes need
+**Community layout.** Extract the release archive into `~/.local/share/noctalia/plugins/` (its
+root contains the `medo/` plugin directory), run `noctalia msg config-reload` so the local plugin is
+discovered, then `noctalia msg plugins enable goutamsharma/medo`. To copy by hand, put the contents
+of `medo/` in `~/.local/share/noctalia/plugins/medo/` — the local loader scans that directory
+directly, not the nested `author/plugin` form. `plugin.toml` changes need
 `noctalia msg config-reload`; `.luau` edits hot-reload.
 
 **Optional niri binds** (global shortcuts are the compositor's job — the panel deliberately has
