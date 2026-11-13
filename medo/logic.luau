@@ -626,6 +626,108 @@ function M.trash_days_left(deleted_ms, now_ms, retention_days)
   return left
 end
 
+-- ── import (PLAN decision 3) ────────────────────────────────────────────────
+--
+-- An import is a merge, never a restore: the live list is the truth for the
+-- day, so a document can only add to it or replace an id inside it. That keeps
+-- an old backup from silently wiping today's work. `validate_import` is the
+-- gate (pure, no writes), `merge_import` is the policy, and `apply_import` puts
+-- them in the only order core.luau may use.
+
+-- Round-trip through the ordinal, so 2026-02-30 and 2026-13-01 (which parse)
+-- are rejected as dates that do not exist.
+local function valid_day(day)
+  if type(day) ~= "string" then return false end
+  local ordinal = M.to_ordinal(day)
+  return ordinal ~= nil and M.from_ordinal(ordinal) == day
+end
+
+local function usable_task(task)
+  return type(task) == "table" and type(task.id) == "string" and task.id ~= ""
+end
+
+-- True when `value` is a schema-1 medo document that is safe to merge.
+-- Returns false plus a copy key (core.luau translates it) naming the first
+-- problem; it never touches the live document.
+function M.validate_import(value)
+  if type(value) ~= "table" then return false, "error.import_shape" end
+  if value.schema ~= M.SCHEMA then return false, "error.import_schema" end
+  if not valid_day(value.day) then return false, "error.import_day" end
+  if type(value.tasks) ~= "table" then return false, "error.import_tasks" end
+  for _, task in ipairs(value.tasks) do
+    if not usable_task(task) then return false, "error.import_tasks" end
+  end
+  if type(value.trash) ~= "table" then return false, "error.import_trash" end
+  for _, entry in ipairs(value.trash) do
+    if type(entry) ~= "table" or not usable_task(entry.task) then
+      return false, "error.import_trash"
+    end
+  end
+  return true
+end
+
+-- Keyed by task id: an id that already exists is replaced where it sits (its
+-- live `order` is kept, so an import cannot reorder the day), a new id is
+-- appended after the highest current `order`, and trash merges the same way.
+-- Nothing is deleted and the live day, streak and carried_in are untouched.
+-- Returns { changed, added, replaced, trashed } for the toast and the log.
+function M.merge_import(doc, incoming)
+  local summary = { changed = false, added = 0, replaced = 0, trashed = 0 }
+
+  local index_by_id, highest = {}, 0
+  for index, task in ipairs(doc.tasks or {}) do
+    if type(task) == "table" and type(task.id) == "string" then
+      index_by_id[task.id] = index
+    end
+    highest = math.max(highest, tonumber(task.order) or 0)
+  end
+
+  for _, task in ipairs(incoming.tasks) do
+    local at = index_by_id[task.id]
+    if at then
+      task.order = doc.tasks[at].order or at
+      doc.tasks[at] = task
+      summary.replaced = summary.replaced + 1
+    else
+      highest = highest + 1
+      task.order = highest
+      doc.tasks[#doc.tasks + 1] = task
+      index_by_id[task.id] = #doc.tasks
+      summary.added = summary.added + 1
+    end
+  end
+
+  doc.trash = doc.trash or {}
+  local trash_index = {}
+  for index, entry in ipairs(doc.trash) do
+    local task = type(entry) == "table" and entry.task or nil
+    if usable_task(task) then trash_index[task.id] = index end
+  end
+
+  for _, entry in ipairs(incoming.trash) do
+    local at = trash_index[entry.task.id]
+    if at then
+      doc.trash[at] = entry
+    else
+      doc.trash[#doc.trash + 1] = entry
+      trash_index[entry.task.id] = #doc.trash
+    end
+    summary.trashed = summary.trashed + 1
+  end
+
+  summary.changed = (summary.added + summary.replaced + summary.trashed) > 0
+  return summary
+end
+
+-- Validate, then merge. Returns the summary on success; nil plus the reason key
+-- on rejection, with `doc` untouched (the rejected-import test compares the
+-- serialised document before and after).
+function M.apply_import(doc, incoming)
+  local ok, reason = M.validate_import(incoming)
+  if not ok then return nil, reason end
+  return M.merge_import(doc, incoming)
+end
+
 -- Streak: consecutive closed days scoring at least `threshold` with work on the
 -- list. A gap (shell was off) breaks the run rather than being silently bridged.
 function M.advance_streak(streak, snapshot, threshold)

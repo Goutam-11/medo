@@ -83,6 +83,29 @@ function M.load()
   return nil, "corrupt"
 end
 
+-- Read an import candidate from any path the shell can read (a copy of
+-- tasks.json, a backups/ file, the export folder). `noctalia.readFile` resolves
+-- `~`, absolute paths verbatim, and everything else plugin-relative. Decoding
+-- only — a JSON scalar is not a document — and this never writes: schema and
+-- shape belong to logic.validate_import. Failures come back as copy keys; an
+-- unreadable path keeps the shell's own message for core.luau to interpolate.
+function M.read_document(path)
+  if type(path) ~= "string" then return nil, "error.import_path" end
+  local target = path:gsub("^%s+", ""):gsub("%s+$", "")
+  if target == "" then return nil, "error.import_path" end
+
+  local raw, err = noctalia.readFile(target)
+  if type(raw) ~= "string" or raw == "" then
+    if type(err) == "string" and err ~= "" then return nil, err end
+    return nil, "error.import_empty"
+  end
+
+  local ok, value = pcall(noctalia.json.decode, raw)
+  if not ok then return nil, "error.import_json" end
+  if type(value) ~= "table" then return nil, "error.import_json" end
+  return value, nil
+end
+
 function M.save(doc)
   local dir, err = M.dir()
   if not dir then return false, err end

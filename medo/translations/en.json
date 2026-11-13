@@ -223,5 +223,15 @@
   "error.export_build": "export: could not build the report",
   "error.export_encode": "export: could not encode the report",
   "error.export_write": "export failed: {error}",
-  "toast.exported": "exported {path}"
+  "error.import_read": "import failed: {error}",
+  "error.import_path": "import needs a file path",
+  "error.import_empty": "that file is empty",
+  "error.import_json": "that file is not valid JSON",
+  "error.import_shape": "that file is not a medo document",
+  "error.import_schema": "that file uses a schema this medo does not know",
+  "error.import_day": "that file has no valid day",
+  "error.import_tasks": "that file's task list is not a list of tasks",
+  "error.import_trash": "that file's trash list is not a list of trashed tasks",
+  "toast.exported": "exported {path}",
+  "toast.imported": "imported: {added} added · {replaced} replaced · {trashed} trashed"
 }

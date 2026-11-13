@@ -205,6 +205,34 @@ back after ~8 s or on any click.
   allowed (shown as `Fri 14:00`)
 - ids are `t_<base36 time>_<4 random hex>` — stable across edits, no counters
 
+### Import merge policy (decision 3)
+
+`kind = "import"` / `debug-import <path>` reads a `tasks.json`-shaped document with
+`store.read_document` (the store owns disk), validates it with the pure
+`logic.validate_import`, and **merges** it into the live document — it never restores
+wholesale, so an old backup cannot silently wipe today's list:
+
+- an incoming task id that already exists is **replaced in place** (its live `order` is
+  kept, so an import cannot reorder the day);
+- a new id is **appended** after the highest current `order`;
+- `trash` merges by task id the same way: an existing deletion is replaced, a new one
+  appended;
+- the live `day`, `rollover_hour`, `carried_in` and `streak` are untouched (the save
+  bumps `revision` as usual);
+- nothing is deleted: an import only adds or replaces.
+
+Validation rejects a non-table document, a `schema` other than 1, a missing or
+impossible `day` (round-tripped, so `2026-02-30` and `2026-13-01` fail), and
+`tasks`/`trash` that are not lists of entries with usable string ids. The validator is
+pure and returns `false` plus a copy key; a rejected import writes nothing. A valid
+import is **one atomic `store.save` and one publish**, toasted and logged as
+`added / replaced / trashed`; a valid but empty import changes nothing and therefore
+writes nothing.
+
+There is still no document **export** command: an import source is a copy of
+`tasks.json`, a `backups/tasks-<day>.json` file, or any file a user assembles in that
+shape. Report export is separate (PLAN §6.3, §7.4).
+
 ### `history.json`
 
 ```json
@@ -588,6 +616,16 @@ service publishes `view.week_start` and each report carries `week_start`, so the
 stale report after a settings change and re-requests instead of showing the old range. A
 hand-edited or out-of-range value falls back to Monday (`logic.week_start_index`). Pure logic grew
 to 389 tests.
+
+Post-5b (2026-11-13) — import (issue #25). `kind = "import"` and the
+`debug-import <path>` IPC seam read a `tasks.json`-shaped document through the
+store, gate it with the pure `logic.validate_import` and merge it by task id
+(§5, "Import merge policy"). The live list is never wiped: existing ids are
+replaced in place, new ids append, trash merges by id. A valid import is one
+atomic save and one publish with an `added / replaced / trashed` toast and log
+line; a rejected file writes nothing. Pure logic grew from 389 to 429 tests;
+`make check` is green. Shell verification is the reviewer's step — the recipe
+is in `docs/DEV.md`.
 
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
 `docs/DEV.md`.
