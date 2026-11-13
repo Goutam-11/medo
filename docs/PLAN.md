@@ -335,9 +335,13 @@ planned vs completed effort, longest streak, and a "what changed" line. Export a
 ```
 
 - **Row**: priority dot, title (strike-through when done), due chip (red when overdue), carried
-  badge, inline slider, completion check. Hover reveals edit / park / delete.
+  badge, repeat badge (`↻` for daily, `↻ M W F` for weekdays), inline slider, completion check.
+  Hover reveals edit / park / delete.
 - **Slider**: 0–100 in steps of 5, wheel works, `onDragEnd` persists. Reaching 100 completes the
   row (strike, chime, moved to the done section) — dragging back below 100 un-completes.
+- **Repeat control**: the row editor carries `never` / `daily` / `weekdays`, and picking weekdays
+  reveals Monday–Sunday toggles (ISO 1..7). `edit` carries the rule with the other fields, so
+  editing a title keeps the repeat; the row badge shows it without opening the editor (decision 15).
 - **Add row**: title input (`focus` on new), estimate select (15/30/45/60/90/…), time input,
   tag select, priority cycle. Enter adds, keeps focus for the next capture.
 - **Keyboard**: capture-first only. Opening the panel focuses the add field, so typing + `Enter`
@@ -626,6 +630,16 @@ atomic save and one publish with an `added / replaced / trashed` toast and log
 line; a rejected file writes nothing. Pure logic grew from 389 to 429 tests;
 `make check` is green. Shell verification is the reviewer's step — the recipe
 is in `docs/DEV.md`.
+
+Post-5b (2026-11-13) — repeats from the editor. Decision 15's rollover recreation already worked
+but nothing could create a rule: only a hand-written IPC `add` payload reached it. The row editor
+now carries a `never` / `daily` / `weekdays` control with Monday–Sunday toggles (ISO 1..7, shown
+only for weekdays), and the `edit` command carries `recurrence` — a table sets it, `false` clears
+it, an absent key keeps it — so editing any other field preserves the repeat. `logic.recurrence_from_selection`
+normalises the toggles (sorted, de-duplicated, none → `nil`, all seven → daily) and
+`logic.recurrence_label` builds the `↻` / `↻ M W F` row badge; both are unit-tested. `edit` is
+also an IPC event now, so the rollover path can be proven without a pointer. No schema change.
+Pure logic grew to 415 tests. Evidence: `docs/screenshots/issue24-{editor-repeat,badge}.png`.
 
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
 `docs/DEV.md`.
