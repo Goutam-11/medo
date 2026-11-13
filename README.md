@@ -10,9 +10,9 @@
 and every week tells you how you actually worked.</p>
 
 <p align="center">
-  <a href="https://github.com/Goutam-11/medo/releases"><img src="https://img.shields.io/github/v/release/Goutam-11/medo?style=flat-square&label=release" alt="Latest release"></a>
+  <a href="https://github.com/Goutam-11/medo/releases"><img src="https://img.shields.io/github/v/release/Goutam-11/medo?style=flat-square&label=release&v=1" alt="Latest release"></a>
   <a href="https://github.com/Goutam-11/medo/actions/workflows/ci.yml"><img src="https://github.com/Goutam-11/medo/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/Goutam-11/medo?style=flat-square" alt="MIT licence"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Goutam-11/medo?style=flat-square&v=1" alt="MIT licence"></a>
   <a href="https://noctalia.dev"><img src="https://img.shields.io/badge/Noctalia-5.4.1-7c5cff?style=flat-square" alt="Noctalia 5.4.1"></a>
   <a href="docs/PLAN.md"><img src="https://img.shields.io/badge/plugin__api-43-2ea44f?style=flat-square" alt="plugin_api 43"></a>
   <a href="tests/logic_test.luau"><img src="https://img.shields.io/badge/tests-503-brightgreen?style=flat-square" alt="503 tests"></a>
