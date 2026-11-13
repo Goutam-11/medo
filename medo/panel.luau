@@ -1308,6 +1308,11 @@ end
 
 function onOpen(context)
   read_view()
+  -- `noctalia.togglePanel` has no context argument at API 43, so the bar hands
+  -- its right-click intent over through the shared state; consume it once.
+  local handoff = noctalia.state.get("panel_context")
+  noctalia.state.set("panel_context", nil)
+  if type(handoff) == "string" and handoff ~= "" then context = handoff end
   editing = nil
   cap_pending = nil
   tab = "today"
@@ -1371,6 +1376,7 @@ end
 -- Drop the one-second cadence when the panel goes away; render() reinstates it
 -- the next time a celebration starts.
 function onClose()
+  noctalia.state.set("panel_context", nil)
   noctalia.setUpdateInterval(30000)
 end
 

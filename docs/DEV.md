@@ -245,6 +245,29 @@ result; there is no pointer injection on this machine, so a click on the row is 
 Activation toasts `Sold. "buy milk" is on today's list.` and calls `launcher.setQuery("")`, which
 resets the input to the provider root (`/medo`) instead of closing the launcher.
 
+## Bar widget (post-5b)
+
+The bar reads the published view and never writes. Left-click toggles the panel on Today;
+right-click opens it on **Pending**.
+
+- **Right-click context.** API 43's `noctalia.togglePanel(panelId)` takes no context argument, so
+  the bar writes `panel_context = "pending"` to shared state immediately before toggling, and the
+  panel's `onOpen` consumes it once and clears it. A left-click clears any stale value first.
+- **Testing without a pointer.** `onRightClick` and `onIpc("pending")` share the same
+  `open_pending()` function, so the gesture path can be exercised from the CLI:
+  `noctalia msg plugin goutamsharma/medo:bar all pending`. That verifies the state handoff; the
+  physical right-click itself is still unverifiable here.
+- **Widget settings** (Noctalia widget settings): `glyph`, `show_count` and `show_mascot_dot`.
+  The last two default to on. Hiding both falls back to the count — `logic.bar_visibility` encodes
+  that rule and is unit-tested. Change them with `noctalia msg config-set widget.medo.show_count
+  false` followed by `noctalia msg config-reload`.
+- **Tooltip** rows are built in `bar.luau` from `logic.next_due_tooltip` (countdown + title) and
+  dropped when nothing is due. Hover cannot be injected, so verify the content through the unit
+  tests and the widget's `medo bar tooltip next due:` log line.
+- **Screenshots**: the bar auto-hides over a tiled/fullscreen window (`smart_auto_hide`). Focus an
+  empty workspace first (`niri msg action focus-workspace 2`), then `grim -g "0,0 1920x48"` and crop
+  the left capsule. A screenshot taken over a window captures that window's toolbar, not the bar.
+
 ## Text, translations and the copy contract (Phase 5b)
 
 Every user-visible string lives in `medo/translations/en.json` (flat dotted keys) and is resolved

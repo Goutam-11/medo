@@ -68,6 +68,11 @@ start = [ "launcher", "wallpaper", "workspaces", "medo" ]
 type = "goutamsharma/medo:bar"
 ```
 
+The bar capsule shows the Medo glyph and `done/total`. Its settings are `glyph`, `show_count` and
+`show_mascot_dot`; hiding both still leaves the count, so the capsule is never empty. The tooltip
+carries the next due task with a countdown (`in 42m · "Finish the report"`). Left-click opens
+Today; right-click opens Pending.
+
 **Community layout.** To install a release tarball by hand, copy the contents of `medo/` (the
 directory holding `plugin.toml`) to `~/.local/share/noctalia/plugins/goutamsharma/medo/`, then
 `noctalia msg plugins enable goutamsharma/medo`. `plugin.toml` changes need
