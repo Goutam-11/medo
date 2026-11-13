@@ -839,6 +839,153 @@ local outside, outside_removed = logic.purge_trash({ { deleted_ms = 0, task = {}
 eq("trash outside window kept", #outside, 0)
 eq("trash outside window removed", outside_removed, 1)
 
+-- ── import: validation and the merge policy (PLAN decision 3) ───────────────
+
+-- Deterministic serialisation, only for the "rejected import leaves the
+-- document byte-identical" assertion. logic.luau has no host JSON and the
+-- tests must not add one, so this is a tiny sorted-key encoder.
+local function canon(value)
+  local kind = type(value)
+  if kind ~= "table" then
+    if kind == "string" then return '"' .. value .. '"' end
+    return tostring(value)
+  end
+  local keys = {}
+  for key in pairs(value) do keys[#keys + 1] = key end
+  table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+  local parts = {}
+  for _, key in ipairs(keys) do
+    local label = type(key) == "number" and "" or ('"' .. tostring(key) .. '":')
+    parts[#parts + 1] = label .. canon(value[key])
+  end
+  local array = #keys > 0 and type(keys[1]) == "number"
+  return (array and "[" or "{") .. table.concat(parts, ",") .. (array and "]" or "}")
+end
+
+local function importable(overrides)
+  local document = {
+    schema = 1,
+    revision = 41,
+    day = "2026-11-12",
+    rollover_hour = 4,
+    carried_in = 0,
+    streak = { current = 0, best = 0 },
+    tasks = {},
+    trash = {},
+  }
+  for key, value in pairs(overrides or {}) do document[key] = value end
+  return document
+end
+
+local function import_task(id, title, order)
+  return { id = id, title = title, status = "today", order = order, progress = 0 }
+end
+
+local function live_document()
+  return {
+    schema = 1,
+    revision = 7,
+    day = "2026-11-12",
+    rollover_hour = 4,
+    carried_in = 1,
+    streak = { current = 3, best = 5, last_counted_day = "2026-11-11" },
+    tasks = {
+      import_task("t_live_a", "keep me", 1),
+      import_task("t_live_b", "old title", 2),
+    },
+    trash = {
+      { task = import_task("t_trash_old", "already gone", 0), deleted_ms = 1000 },
+    },
+  }
+end
+
+eq("import valid document", logic.validate_import(importable({
+  tasks = { import_task("t_new", "new", 1) },
+})), true)
+
+local schema_ok, schema_reason = logic.validate_import(importable({ schema = 2 }))
+eq("import wrong schema", schema_ok, false)
+eq("import wrong schema reason", schema_reason, "error.import_schema")
+
+local missing_day = importable()
+missing_day.day = nil
+local day_ok, day_reason = logic.validate_import(missing_day)
+eq("import missing day", day_ok, false)
+eq("import missing day reason", day_reason, "error.import_day")
+eq("import malformed day", logic.validate_import(importable({ day = "12-11-2026" })), false)
+eq("import impossible day", logic.validate_import(importable({ day = "2026-02-30" })), false)
+
+local tasks_ok, tasks_reason = logic.validate_import(importable({ tasks = "nope" }))
+eq("import tasks not a table", tasks_ok, false)
+eq("import tasks reason", tasks_reason, "error.import_tasks")
+eq("import task without id", logic.validate_import(importable({ tasks = { { title = "x" } } })), false)
+
+local trash_ok, trash_reason = logic.validate_import(importable({ trash = 5 }))
+eq("import trash not a table", trash_ok, false)
+eq("import trash reason", trash_reason, "error.import_trash")
+eq("import trash entry without task", logic.validate_import(importable({ trash = { { deleted_ms = 1 } } })), false)
+
+local shape_ok, shape_reason = logic.validate_import("{}")
+eq("import non-table document", shape_ok, false)
+eq("import non-table reason", shape_reason, "error.import_shape")
+
+-- id collision: the existing task is replaced where it sits, a new id appends
+local live = live_document()
+local summary = logic.apply_import(live, importable({
+  tasks = {
+    import_task("t_live_b", "new title", 1),
+    import_task("t_imported", "fresh", 2),
+  },
+}))
+eq("import merge summary", type(summary), "table")
+eq("import added", summary.added, 1)
+eq("import replaced", summary.replaced, 1)
+eq("import changed", summary.changed, true)
+eq("import live list length", #live.tasks, 3)
+eq("import collision replaced title", live.tasks[2].title, "new title")
+eq("import collision keeps live order", live.tasks[2].order, 2)
+eq("import appended id", live.tasks[3].id, "t_imported")
+eq("import appended order", live.tasks[3].order, 3)
+local seen, unique = {}, true
+for _, task in ipairs(live.tasks) do
+  if seen[task.id] then unique = false end
+  seen[task.id] = true
+end
+eq("import no duplicate ids", unique, true)
+eq("import keeps live day", live.day, "2026-11-12")
+eq("import keeps live streak", live.streak.current, 3)
+eq("import keeps live carried_in", live.carried_in, 1)
+
+-- trash merges by task id too, and leaves the live list alone
+local trash_live = live_document()
+local trash_summary = logic.apply_import(trash_live, importable({
+  trash = {
+    { task = import_task("t_trash_old", "replaced gone", 0), deleted_ms = 2000 },
+    { task = import_task("t_trash_new", "newly gone", 0), deleted_ms = 3000 },
+  },
+}))
+eq("import trash merged count", trash_summary.trashed, 2)
+eq("import trash list length", #trash_live.trash, 2)
+eq("import trash collision replaced", trash_live.trash[1].task.title, "replaced gone")
+eq("import trash collision keeps deletion", trash_live.trash[1].deleted_ms, 2000)
+eq("import trash appended", trash_live.trash[2].task.id, "t_trash_new")
+eq("import trash leaves tasks alone", #trash_live.tasks, 2)
+
+-- a rejected import never reaches the document: serialise, reject, compare
+local guarded = live_document()
+local before = canon(guarded)
+local rejected, reject_reason = logic.apply_import(guarded, importable({ schema = 2 }))
+eq("rejected import returns nil", rejected, nil)
+eq("rejected import reason", reject_reason, "error.import_schema")
+eq("rejected import leaves document byte-identical", canon(guarded), before)
+
+-- a valid but empty import is a no-op, not a wipe
+local noop = live_document()
+local noop_summary = logic.apply_import(noop, importable({}))
+eq("empty import changed", noop_summary.changed, false)
+eq("empty import counts", noop_summary.added + noop_summary.replaced + noop_summary.trashed, 0)
+eq("empty import keeps tasks", #noop.tasks, 2)
+
 -- ── summary ─────────────────────────────────────────────────────────────────
 
 print(string.format("\n%d passed, %d failed", passed, failed))

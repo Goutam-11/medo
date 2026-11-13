@@ -92,6 +92,7 @@ noctalia msg plugin goutamsharma/medo:core all debug-backdate 2026-11-09  # lie 
 noctalia msg plugin goutamsharma/medo:core all debug-report weekly   # build + publish a report
 noctalia msg plugin goutamsharma/medo:core all debug-export weekly   # write <export_dir>/medo-weekly-<end>.md
 noctalia msg plugin goutamsharma/medo:core all debug-export monthly json  # …and a JSON monthly report
+noctalia msg plugin goutamsharma/medo:core all debug-import /tmp/medo-import.json  # merge a task document by id
 noctalia msg plugin goutamsharma/medo:core all debug-tick 08:00      # run the notification scheduler at a fake local time
 noctalia msg plugin goutamsharma/medo:core all debug-clock-clear     # back to the real clock
 noctalia msg plugin goutamsharma/medo:core all debug-notify weekly   # show one notification copy without the clock
@@ -184,6 +185,48 @@ comment above `REPORT_PATTERN` in `core.luau` lists the resulting daily scores. 
 weekly export lands on: 6/12 done, score 74 %, 6 carried (50 %), on time 2/4 (50 %), avg at close
 34 %, best Tue 10 Nov (100 %), worst Mon 9 Nov (44 %) — all derivable from `history.json` plus
 `tasks.json`.
+
+## Import (post-5b, issue #25)
+
+`debug-import <path>` (or the panel command `{ kind = "import", path = … }`) merges a
+`tasks.json`-shaped document into the live one. The path is resolved by
+`noctalia.readFile`: `~` and absolute paths work, anything else is plugin-relative.
+
+- `store.read_document(path)` reads and decodes; it never writes and does not judge the
+  schema. A missing/empty file is `error.import_empty`, invalid JSON or a non-object is
+  `error.import_json`, and an unreadable path interpolates the shell's message into
+  `error.import_read`.
+- `logic.validate_import(value)` is the pure gate. It rejects a non-table document, a
+  `schema` other than 1, a missing or impossible `day`, and `tasks`/`trash` that are not
+  lists of entries with string ids, returning `false` plus a copy key
+  (`error.import_*`). Nothing is merged on rejection.
+- `logic.merge_import(doc, incoming)` is the policy (PLAN §5): an existing id is replaced
+  in place with its live `order`; a new id is appended; trash merges by task id. The
+  live `day`, `streak` and `carried_in` stay.
+- `logic.apply_import(doc, incoming)` is validate-then-merge, the only order the service
+  uses. A valid import is one `store.save` (atomic) and one publish; the toast and log
+  line read `added / replaced / trashed`. A valid but empty import is a no-op: it writes
+  nothing.
+
+Verification recipe (the shell must point at the checkout under test):
+
+```bash
+DATA=~/.local/state/noctalia/plugins/data/goutamsharma/medo
+cp "$DATA/tasks.json" /tmp/medo-import.json          # this copy is the "export"
+# edit a title and append a task with a new id in /tmp/medo-import.json
+noctalia msg plugin goutamsharma/medo:core all debug-import /tmp/medo-import.json
+noctalia msg plugin goutamsharma/medo:core all debug-dump
+sha256sum "$DATA/tasks.json"
+# break the file (e.g. "schema": 2) and import again: error toast, no write
+noctalia msg plugin goutamsharma/medo:core all debug-import /tmp/medo-import-broken.json
+sha256sum "$DATA/tasks.json"                          # byte-identical
+grep 'medo: import' ~/.cache/noctalia/noctalia.log | tail -5
+```
+
+Importing a byte copy of the current `tasks.json` replaces every task (the summary says
+so) and rotates one `.bak` generation; it is content-idempotent, not write-free. There
+is no user-facing import button and no document export command yet — the seam is IPC
+only.
 
 ## Notifications (Phase 4a)
 

@@ -636,6 +636,45 @@ local function commit(changed)
   return changed
 end
 
+-- ── import (PLAN decision 3) ────────────────────────────────────────────────
+
+-- store.read_document returns a copy key for its own failures and the shell's
+-- message for an unreadable path: translate the former, interpolate the latter.
+local function import_read_error(code)
+  if type(code) == "string" and code:match("^error%.") then return tr(code) end
+  return tr("error.import_read", { error = tostring(code) })
+end
+
+-- Read, validate, merge, commit — in that order, so a broken file never
+-- reaches the document. A valid import is one atomic save and one publish; a
+-- valid but empty import changes nothing, so it writes nothing and still
+-- reports its zero summary.
+local function import_document(path)
+  local incoming, read_err = store.read_document(path)
+  if not incoming then
+    noctalia.notifyError(title(), import_read_error(read_err))
+    noctalia.log("medo: import could not read " .. tostring(path) .. ": " .. tostring(read_err))
+    return false
+  end
+
+  local summary, reason = logic.apply_import(doc, incoming)
+  if not summary then
+    noctalia.notifyError(title(), tr(reason))
+    noctalia.log("medo: import rejected " .. tostring(path) .. " (" .. tostring(reason) .. ")")
+    return false
+  end
+
+  commit(summary.changed)
+  noctalia.log(string.format("medo: import %s added=%d replaced=%d trashed=%d",
+    tostring(path), summary.added, summary.replaced, summary.trashed))
+  noctalia.notify(title(), tr("toast.imported", {
+    added = summary.added,
+    replaced = summary.replaced,
+    trashed = summary.trashed,
+  }))
+  return true
+end
+
 -- ── rollover ────────────────────────────────────────────────────────────────
 
 local function rollover(target_day, reason)
@@ -888,6 +927,9 @@ local function apply_command(cmd)
   elseif kind == "export" then
     handle_export(cmd.period, cmd.format)
     return
+  elseif kind == "import" then
+    import_document(cmd.path)
+    return
   end
   commit(changed)
 end
@@ -928,6 +970,13 @@ function onIpc(event, payload)
   elseif event == "debug-export" and type(payload) == "string" then
     local period, format = payload:match("^%s*(%a+)%s*(%a*)")
     handle_export(period, format)
+  elseif event == "debug-import" and type(payload) == "string" then
+    local path = payload:gsub("^%s+", ""):gsub("%s+$", "")
+    if path == "" then
+      noctalia.notifyError("medo", "debug-import: payload must be a file path")
+    else
+      import_document(path)
+    end
   elseif event == "debug-tick" and type(payload) == "string" then
     local hours, minutes = payload:match("^(%d%d?):(%d%d)$")
     if hours then
