@@ -410,6 +410,48 @@ function M.score(tasks, default_estimate)
   return round(earned / total * 100)
 end
 
+-- The focus badge: the first three tasks assigned to the day, in list order.
+-- `snapshot` uses the same rule for `top3_done`, so the stars the panel shows
+-- and the report's top-3 hit rate can never disagree. Pending tasks were never
+-- planned today and never earn a star.
+local function focus_tasks(tasks)
+  local ordered = {}
+  for _, task in ipairs(tasks or {}) do
+    if assigned(task) then ordered[#ordered + 1] = task end
+  end
+  table.sort(ordered, function(a, b)
+    local a_order, b_order = tonumber(a.order) or 0, tonumber(b.order) or 0
+    if a_order == b_order then return tostring(a.id) < tostring(b.id) end
+    return a_order < b_order
+  end)
+  local top = {}
+  for index = 1, math.min(3, #ordered) do top[#top + 1] = ordered[index] end
+  return top
+end
+
+function M.focus_ids(tasks)
+  local ids = {}
+  for _, task in ipairs(focus_tasks(tasks)) do
+    if task.id ~= nil then ids[#ids + 1] = task.id end
+  end
+  return ids
+end
+
+-- Unfinished Today tasks past their deadline. "Past" is strict: exactly at
+-- `due_ms` is still on time, matching the report's on-time boundary.
+function M.overdue_count(tasks, now_ms)
+  local current = tonumber(now_ms) or 0
+  local count = 0
+  for _, task in ipairs(tasks or {}) do
+    local due = tonumber(task.due_ms)
+    if task.status ~= "pending" and due and due > 0 and due < current
+      and clamp_progress(task.progress) < 100 then
+      count = count + 1
+    end
+  end
+  return count
+end
+
 -- The frozen numbers for one closed day. `closed` stays "ok" unless the caller
 -- knows the shell was off (then "missed").
 function M.snapshot(day, tasks, carried_in, default_estimate)
@@ -466,13 +508,8 @@ function M.snapshot(day, tasks, carried_in, default_estimate)
 
   -- The focus badge marks the first three tasks in list order; the report's
   -- top-3 hit rate is how many of them reached 100 %.
-  local ordered = {}
-  for _, task in ipairs(tasks or {}) do
-    if assigned(task) then ordered[#ordered + 1] = task end
-  end
-  table.sort(ordered, function(a, b) return (tonumber(a.order) or 0) < (tonumber(b.order) or 0) end)
-  for index = 1, math.min(3, #ordered) do
-    if clamp_progress(ordered[index].progress) >= 100 then
+  for _, task in ipairs(focus_tasks(tasks)) do
+    if clamp_progress(task.progress) >= 100 then
       result.top3_done = result.top3_done + 1
     end
   end

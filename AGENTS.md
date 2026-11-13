@@ -4,10 +4,10 @@ medo is a day-scoped task manager for **Noctalia v5** on niri: a Luau plugin tha
 persists tasks, closes the day at a configurable hour, carries leftovers into a
 Pending list, and reports weekly/monthly efficiency.
 
-**Current state: Phases 0–4a are on `main`; v1 (`0.2.0`) is feature complete in the open PRs** —
-launcher capture (4b), celebration/mascot/sounds/triage (4c), Trash (5a) and the i18n/packaging
-pass (5b). No Phase 6 is planned: what remains is a licence decision, a published release, and a
-second language if anyone wants one.
+**Current state (2026-11-13): `main` @ `f6931aa` is `0.2.0` and Phases 0–5b are complete** — the
+plugin is enabled in the running shell. No Phase 6 is planned: seven small, independent gaps are
+tracked as issues #24–#30 (panel promises, bar polish, week start, import, repeats, licence, the
+0.2.0 release). Every branch is cut from `main`; never merge a PR into a feature branch.
 
 ## Read first
 
