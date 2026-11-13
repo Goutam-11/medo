@@ -361,7 +361,7 @@ still the only *automatic* purge.
   5.4.1, not guessed).
 - `debug-seed-trash` adds three rows aged 0/3/27 days for the countdown screenshot.
 
-## Repeats (issue #24)
+## Repeats (issues #24, #35)
 
 Decision 15 shipped the rollover recreation first, so only a hand-written IPC payload could create
 a repeat. The editor is now the way in, and the rule is the `recurrence` field schema 1 already
@@ -395,11 +395,58 @@ had — **no migration**.
   ```
 
   Then `debug-rollover`: a matching repeat is copied with `progress = 0`, `carried = 0` and
-  `status = "today"` (its `due_ms` shifted by the same clock time), and a weekday rule that does
-  not match the new day copies nothing — `logic.repeats_on` is the same rule the rollover uses.
+  `status = "today"` (its `due_ms` shifted by the same clock time). A weekday rule that does not
+  match the new day copies nothing, but a *completed* one leaves a pending placeholder for its
+  next matching day (issue #35, below) — `logic.repeats_on` is the same rule the rollover uses.
 - **Badge.** `↻` or `↻ M W F` rides in the row's badge strip before the tag, so a repeat is
   visible without opening the editor. Seven days reads as `↻` for the same reason it stores as
   daily.
+
+### Continuity across off-days (issue #35)
+
+The first rollover recreation only looked at tasks still in `doc.tasks`, so a completed weekday
+repeat was archived on the first off-day and its rule died there: `[1,3,5]` completed on Friday
+never came back on Monday. The fix keeps **one open instance per title** without a schema change:
+
+- **Done + fires tomorrow** (the old path): clone fresh as `today`, `progress = 0`,
+  `carried = 0`, `due_ms` shifted a day.
+- **Done + off-day**: append a fresh **pending placeholder** — new id, `status = "pending"`,
+  `progress = 0`, `carried = 0`, same `recurrence`, `due_ms` moved to the *next matching day*
+  (so it reads "due Monday", not "late" while it waits). It sits in **Pending** with its `↻`
+  badge; that is visible on purpose, since Pending is "awaiting a decision".
+- **Pending + fires today**: promote it in place to `today`, keeping its `progress` and `carried`
+  mark (only `due_ms` is re-homed to today). This is what makes a carried `[1,3,5]` instance
+  continue on Wednesday instead of spawning a twin.
+- **No duplicates**: any open task with the same title blocks both the clone and the placeholder,
+  and only one instance per title is promoted. A rule that can never fire (unknown kind, empty
+  weekday list) leaves no placeholder. `plan.repeats` counts clones only; a promotion is not a
+  new clone, so `debug-rollover` reports `repeats 0` on the day a placeholder fires.
+
+Live check (the running plugin must be serving this branch; run it on a Friday so
+`debug-rollover` hits the issue's exact repro — 2026-11-13 is a Friday):
+
+```bash
+DATA=~/.local/state/noctalia/plugins/data/goutamsharma/medo
+noctalia msg plugin goutamsharma/medo:core all debug-reset       # clean list, real day
+noctalia msg plugin goutamsharma/medo:core all add '{"title":"gym","estimate_min":30,"recurrence":{"kind":"weekdays","days":[1,3,5]}}'
+ID=$(jq -r '.tasks[] | select(.title == "gym") | .id' "$DATA/tasks.json")
+noctalia msg plugin goutamsharma/medo:core all progress "{\"id\":\"$ID\",\"progress\":100}"
+
+# 1. Saturday: no Today row, exactly one Pending gym, progress 0, due Monday
+noctalia msg plugin goutamsharma/medo:core all debug-rollover   # toast says repeats 0
+jq '.tasks[] | select(.title == "gym") | {status, progress, carried, recurrence, due_ms}' "$DATA/tasks.json"
+
+# 2. Sunday: the same id is still the one pending placeholder
+noctalia msg plugin goutamsharma/medo:core all debug-rollover
+jq '.tasks[] | select(.title == "gym") | {id, status}' "$DATA/tasks.json"
+
+# 3. Monday: promoted in place to today, progress/carried kept, still one row
+noctalia msg plugin goutamsharma/medo:core all debug-rollover
+jq '.tasks[] | select(.title == "gym") | {id, status, progress, carried}' "$DATA/tasks.json"
+```
+
+Every step must show exactly one `gym` row; a second Today copy on Monday is the bug. Finish with
+`debug-reset` and leave the real list empty.
 
 ## Assets, sound and the celebration (Phase 4c)
 

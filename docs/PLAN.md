@@ -26,7 +26,7 @@ and every week tells you how you actually worked.
 | 12 | Daily cap | **Soft cap at 3**, top-3 get a focus badge, 4th+ asks "sure?" |
 | 13 | Reports | Auto **Sun 20:00** weekly + **1st 20:00** monthly, Reports tab + toast |
 | 14 | Carry-over | Keep progress %, badge how many times it was carried |
-| 15 | Repeats | Daily / selected-weekdays, recreated at rollover |
+| 15 | Repeats | Daily / selected-weekdays, recreated at rollover; a completed repeat on an off-day waits as one pending placeholder and is promoted on its next matching day |
 | 16 | Keyboard | Capture-first: the add field takes focus, `Enter` saves; global shortcuts live in niri (in-panel shortcuts were removed — see §7.2) |
 | 17 | Metrics | Effort-weighted score + carryover + on-time + avg progress at close + insights |
 | 18 | Trash | Soft delete, restore anytime, auto-purge after 30 days |
@@ -88,7 +88,9 @@ history (not Trash).
   1. snapshot the closing day into `history.json` (or mark it `missed` if the shell was off),
   2. archive completed tasks (keep their completion time for on-time math),
   3. unfinished Today tasks → Pending with `carried = carried + 1`, progress preserved,
-  4. recreate repeats that match the new day,
+  4. promote an open repeat whose rule fires on the new day (keeping its progress),
+     recreate repeats that match it, and leave one pending placeholder for a
+     completed repeat that misses it — the rule survives the off-days,
   5. purge Trash older than 30 days,
   6. write a dated backup of `tasks.json` (keep last 14),
   7. recompute streak, publish the new view to the bar.
@@ -507,7 +509,7 @@ form is what this machine uses; `.luau` edits hot-reload, `plugin.toml` needs
 | Corrupted or half-written JSON | Atomic tmp+rename, schema version field, `.bak` restore path, backups kept 14 rollovers |
 | Panel height jumps while dragging a slider | `max_height` + inner `ui.scroll` for long lists |
 | Re-firing toasts after a plugin reload | Dedupe keys persisted in `state.json` |
-| Repeats duplicate after a missed rollover | Recreate at most once per new day; skip if an unfinished instance exists |
+| Repeats duplicate after a missed rollover | One open instance per title: a completed repeat that misses the new day leaves a pending placeholder, promoted in place on its next matching day; a clone is skipped whenever an open instance with the same title exists |
 | Carried tasks pile up invisibly | Pending shows a count badge on the bar tab, morning digest names the count, badges show `×N` |
 
 ---
@@ -641,6 +643,17 @@ normalises the toggles (sorted, de-duplicated, none → `nil`, all seven → dai
 `logic.recurrence_label` builds the `↻` / `↻ M W F` row badge; both are unit-tested. `edit` is
 also an IPC event now, so the rollover path can be proven without a pointer. No schema change.
 Pure logic grew to 415 tests. Evidence: `docs/screenshots/issue24-{editor-repeat,badge}.png`.
+
+Post-5b (2026-11-13) — repeat continuity (issue #35). A completed selected-weekday repeat used to
+lose its rule on an off-day: the finished task was archived on Saturday, the clone loop only saw
+tasks still in the list, so Monday got nothing. `logic.plan_rollover` now keeps one open instance
+per title across the off-days — a completed repeat that does not fire on the new day leaves a
+fresh **pending** placeholder (new id, progress 0, carried 0, same rule, due moved to its next
+matching day) — and promotes a kept pending recurring instance whose rule fires on the new day to
+Today, keeping its progress and carried mark. Cloning and promotion both respect the no-duplicate
+rule, no schema field was added, and a rule that can never fire leaves no placeholder. Pure logic
+grew from 455 to 503 tests; `make check` is green. Live verification is the reviewer's step — the
+recipe is in `docs/DEV.md`.
 
 Each phase ends with: reload the plugin, verify in the running shell, check the log, and a note in
 `docs/DEV.md`.
