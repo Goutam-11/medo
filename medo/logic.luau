@@ -595,18 +595,49 @@ function M.recurrence_label(recurrence)
   return "↻ " .. table.concat(letters, " ")
 end
 
+-- The first day at or after `from_day` on which `recurrence` fires, probing one
+-- week ahead. A rule that can never fire (unknown kind, or weekdays with no
+-- usable day) returns nil: there is no next occurrence to wait for, so it also
+-- leaves no placeholder behind.
+local function first_matching_day(recurrence, from_day)
+  local probe = from_day
+  for _ = 1, 7 do
+    if M.repeats_on({ recurrence = recurrence }, probe) then return probe end
+    probe = M.next_day(probe)
+  end
+  return nil
+end
+
+-- Move a due time onto `day` while keeping its wall-clock time. A repeated
+-- occurrence is due on the day it fires, not on the day its instance was parked.
+local function due_on_day(due_ms, day)
+  local due = tonumber(due_ms)
+  if not due then return nil end
+  local delta = M.days_between(M.logical_day(due, 0), day)
+  if not delta then return due_ms end
+  return math.floor(due) + delta * 86400000
+end
+
 -- What happens to the list when the day closes:
 --   * finished tasks are archived (recorded in the snapshot, dropped here),
 --   * unfinished tasks move to Pending and gain a carried mark,
---   * pending tasks stay pending,
---   * repeats that match the new day are created fresh unless an open instance
---     with the same title already exists.
--- Returns the snapshot of the closing day and the new task list.
+--   * pending tasks stay pending, except a recurring open instance whose rule
+--     fires on the new day: it is promoted to Today as that day's occurrence,
+--     keeping its progress and carried mark so one instance continues instead
+--     of two being created,
+--   * a repeat whose rule fires on the new day is created fresh unless an open
+--     instance with the same title already exists,
+--   * a *completed* repeat that misses the new day leaves a fresh pending
+--     placeholder for its next matching day, so its rule survives the off-days
+--     between occurrences (the no-duplicate rule still applies).
+-- Returns the snapshot of the closing day and the new task list. `repeats`
+-- holds only freshly cloned instances; a promoted one is not a new clone.
 function M.plan_rollover(doc, next_day, now_ms, default_estimate)
   local snapshot = M.snapshot(doc.day, doc.tasks, doc.carried_in, default_estimate)
   local kept, carried, repeats = {}, 0, {}
-  local open_titles = {}
+  local open_titles, today_titles = {}, {}
 
+  -- 1. Archive finished work; carry unfinished and pending work forward.
   for _, task in ipairs(doc.tasks or {}) do
     if task.status == "today" then
       if clamp_progress(task.progress) >= 100 then
@@ -623,24 +654,63 @@ function M.plan_rollover(doc, next_day, now_ms, default_estimate)
       kept[#kept + 1] = task
       open_titles[task.title] = true
     end
-    -- "done" tasks are already archived
   end
 
+  -- 2. A recurring open instance whose rule fires today *is* today's
+  -- occurrence: promote it in place rather than leave it pending and clone a
+  -- twin. Progress and carried stay, so a missed instance continues.
+  for _, task in ipairs(kept) do
+    if type(task.recurrence) == "table"
+      and clamp_progress(task.progress) < 100
+      and M.repeats_on(task, next_day)
+      and not today_titles[task.title] then
+      task.status = "today"
+      task.updated_ms = now_ms
+      task.due_ms = due_on_day(task.due_ms, next_day)
+      today_titles[task.title] = true
+    end
+  end
+
+  -- 3. Clone repeats that fire today; park a placeholder for the next matching
+  -- day when a completed repeat misses it.
   for _, task in ipairs(doc.tasks or {}) do
-    if type(task.recurrence) == "table" and M.repeats_on(task, next_day) and not open_titles[task.title] then
-      local copy = {}
-      for key, value in pairs(task) do copy[key] = value end
-      copy.id = M.new_id(now_ms)
-      copy.progress = 0
-      copy.carried = 0
-      copy.status = "today"
-      copy.completed_ms = nil
-      copy.updated_ms = now_ms
-      copy.created_ms = now_ms
-      copy.due_ms = M.shift_due(task.due_ms, doc.day, next_day)
-      kept[#kept + 1] = copy
-      open_titles[task.title] = true
-      repeats[#repeats + 1] = copy
+    if type(task.recurrence) == "table" then
+      if M.repeats_on(task, next_day) then
+        if not open_titles[task.title] then
+          local copy = {}
+          for key, value in pairs(task) do copy[key] = value end
+          copy.id = M.new_id(now_ms)
+          copy.progress = 0
+          copy.carried = 0
+          copy.status = "today"
+          copy.completed_ms = nil
+          copy.updated_ms = now_ms
+          copy.created_ms = now_ms
+          copy.due_ms = M.shift_due(task.due_ms, doc.day, next_day)
+          kept[#kept + 1] = copy
+          open_titles[task.title] = true
+          today_titles[task.title] = true
+          repeats[#repeats + 1] = copy
+        end
+      elseif task.status == "today"
+        and clamp_progress(task.progress) >= 100
+        and not open_titles[task.title] then
+        local match_day = first_matching_day(task.recurrence, next_day)
+        if match_day then
+          local copy = {}
+          for key, value in pairs(task) do copy[key] = value end
+          copy.id = M.new_id(now_ms)
+          copy.progress = 0
+          copy.carried = 0
+          copy.status = "pending"
+          copy.completed_ms = nil
+          copy.updated_ms = now_ms
+          copy.created_ms = now_ms
+          copy.due_ms = M.shift_due(task.due_ms, doc.day, match_day)
+          kept[#kept + 1] = copy
+          open_titles[task.title] = true
+        end
+      end
     end
   end
 

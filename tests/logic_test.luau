@@ -134,6 +134,175 @@ local doc3 = {
 }
 local plan3 = logic.plan_rollover(doc3, "2026-11-13", 0, 20)
 eq("weekday repeat skipped off-day", #plan3.repeats, 0)
+-- Since issue #35 the rule survives the off-day as a pending placeholder, so
+-- the list is no longer empty (the clone count above is what the old test
+-- asserted; the task count is the part that had to change).
+eq("weekday off-day keeps a placeholder", #plan3.tasks, 1)
+eq("weekday placeholder is pending", plan3.tasks[1] and plan3.tasks[1].status, "pending")
+
+-- ── repeat continuity across off-days (issue #35) ──────────────────────────
+
+-- A completed selected-weekday repeat on a Friday must survive Saturday and
+-- Sunday as one pending placeholder, then fire as Monday's today task. This is
+-- the issue's repro: before the fix the finished task was archived on Saturday
+-- and its rule died there, so Monday got nothing.
+local function status_count(tasks, status)
+  local count = 0
+  for _, task in ipairs(tasks) do
+    if task.status == status then count = count + 1 end
+  end
+  return count
+end
+
+-- Nil-safe field read: the pre-fix logic builds an empty list, and a missing
+-- row must report a failed expectation instead of crashing the whole suite.
+local function task_field(task, key)
+  return type(task) == "table" and task[key] or nil
+end
+
+local function weekday_doc(progress)
+  return {
+    schema = 1,
+    day = "2026-11-13", -- Friday
+    carried_in = 0,
+    tasks = {
+      {
+        id = "gym",
+        title = "gym",
+        status = "today",
+        progress = progress,
+        estimate_min = 30,
+        recurrence = { kind = "weekdays", days = { 1, 3, 5 } },
+        due_ms = logic.to_ordinal("2026-11-13") * 86400000 + 18 * 3600000,
+        order = 1,
+      },
+    },
+    trash = {},
+  }
+end
+
+local sat = logic.plan_rollover(weekday_doc(100), "2026-11-14", local_ms(2026, 11, 14, 4, 5), 20)
+eq("off-day repeat leaves one pending", #sat.tasks, 1)
+eq("off-day repeat creates no today", status_count(sat.tasks, "today"), 0)
+eq("off-day repeat clones nothing", #sat.repeats, 0)
+local placeholder = sat.tasks[1]
+eq("placeholder is pending", task_field(placeholder, "status"), "pending")
+eq("placeholder progress fresh", task_field(placeholder, "progress"), 0)
+eq("placeholder carried fresh", task_field(placeholder, "carried"), 0)
+eq("placeholder keeps the rule", logic.recurrence_label(task_field(placeholder, "recurrence")), "↻ M W F")
+eq("placeholder gets a new id", task_field(placeholder, "id") ~= "gym" and task_field(placeholder, "id") ~= nil, true)
+eq("placeholder due next occurrence", task_field(placeholder, "due_ms"),
+  logic.to_ordinal("2026-11-16") * 86400000 + 18 * 3600000)
+
+local sun = logic.plan_rollover(
+  { day = "2026-11-14", tasks = sat.tasks },
+  "2026-11-15", local_ms(2026, 11, 15, 4, 5), 20
+)
+eq("placeholder survives Sunday", #sun.tasks, 1)
+eq("placeholder still pending Sunday", task_field(sun.tasks[1], "status"), "pending")
+eq("placeholder id stable", task_field(sun.tasks[1], "id"), task_field(placeholder, "id"))
+eq("placeholder makes no second copy", #sun.repeats, 0)
+
+local mon = logic.plan_rollover(
+  { day = "2026-11-15", tasks = sun.tasks },
+  "2026-11-16", local_ms(2026, 11, 16, 4, 5), 20
+)
+eq("placeholder promoted Monday", #mon.tasks, 1)
+eq("promoted status is today", task_field(mon.tasks[1], "status"), "today")
+eq("promoted progress kept", task_field(mon.tasks[1], "progress"), 0)
+eq("promoted carried kept", task_field(mon.tasks[1], "carried"), 0)
+eq("promotion is not a clone", #mon.repeats, 0)
+eq("promoted due moved to Monday", task_field(mon.tasks[1], "due_ms"),
+  logic.to_ordinal("2026-11-16") * 86400000 + 18 * 3600000)
+
+-- An unfinished instance stays one instance: it is carried through the off-days
+-- and promoted on its next matching day with progress and carried intact.
+local carried_sat = logic.plan_rollover(weekday_doc(40), "2026-11-14", local_ms(2026, 11, 14, 4, 5), 20)
+eq("unfinished repeat pending Saturday", #carried_sat.tasks, 1)
+eq("unfinished repeat status pending", task_field(carried_sat.tasks[1], "status"), "pending")
+eq("unfinished repeat progress kept", task_field(carried_sat.tasks[1], "progress"), 40)
+eq("unfinished repeat carried once", task_field(carried_sat.tasks[1], "carried"), 1)
+eq("unfinished repeat clones nothing", #carried_sat.repeats, 0)
+
+local carried_sun = logic.plan_rollover(
+  { day = "2026-11-14", tasks = carried_sat.tasks },
+  "2026-11-15", local_ms(2026, 11, 15, 4, 5), 20
+)
+eq("unfinished repeat pending Sunday", task_field(carried_sun.tasks[1], "status"), "pending")
+local carried_mon = logic.plan_rollover(
+  { day = "2026-11-15", tasks = carried_sun.tasks },
+  "2026-11-16", local_ms(2026, 11, 16, 4, 5), 20
+)
+eq("unfinished repeat promoted Monday", #carried_mon.tasks, 1)
+eq("unfinished repeat promoted status", task_field(carried_mon.tasks[1], "status"), "today")
+eq("unfinished repeat progress not reset", task_field(carried_mon.tasks[1], "progress"), 40)
+eq("unfinished repeat carried not reset", task_field(carried_mon.tasks[1], "carried"), 1)
+eq("unfinished repeat never cloned", #carried_mon.repeats, 0)
+
+-- No duplicate on the promotion day: an open instance promoted to Today blocks
+-- the fresh clone of the completed instance with the same title.
+local dup = logic.plan_rollover({
+  day = "2026-11-15",
+  tasks = {
+    { id = "open", title = "gym", status = "pending", progress = 20, estimate_min = 10,
+      recurrence = { kind = "weekdays", days = { 1, 3, 5 } } },
+    { id = "closed", title = "gym", status = "today", progress = 100, estimate_min = 10,
+      recurrence = { kind = "weekdays", days = { 1, 3, 5 } } },
+  },
+}, "2026-11-16", local_ms(2026, 11, 16, 4, 5), 20)
+eq("same-title open instance blocks clone", #dup.repeats, 0)
+eq("same-title keeps one instance", #dup.tasks, 1)
+eq("same-title open instance promoted", task_field(dup.tasks[1], "id"), "open")
+eq("same-title promoted status", task_field(dup.tasks[1], "status"), "today")
+
+-- Two open instances sharing a title: only the first is promoted, so the day
+-- never starts with two Today rows for one repeat.
+local twins = logic.plan_rollover({
+  day = "2026-11-15",
+  tasks = {
+    { id = "a", title = "gym", status = "pending", progress = 10,
+      recurrence = { kind = "weekdays", days = { 1, 3, 5 } } },
+    { id = "b", title = "gym", status = "pending", progress = 50,
+      recurrence = { kind = "weekdays", days = { 1, 3, 5 } } },
+  },
+}, "2026-11-16", local_ms(2026, 11, 16, 4, 5), 20)
+eq("twin titles promote only one", status_count(twins.tasks, "today"), 1)
+eq("twin titles keep one pending", status_count(twins.tasks, "pending"), 1)
+eq("twin titles clone nothing", #twins.repeats, 0)
+
+-- A daily repeat still takes the same-day clone path, fresh as today.
+local daily = logic.plan_rollover({
+  day = "2026-11-13",
+  tasks = {
+    { id = "d", title = "stretch", status = "today", progress = 100, estimate_min = 10,
+      recurrence = { kind = "daily" },
+      due_ms = logic.to_ordinal("2026-11-13") * 86400000 + 7 * 3600000 },
+  },
+}, "2026-11-14", local_ms(2026, 11, 14, 4, 5), 20)
+eq("daily done still clones", #daily.repeats, 1)
+eq("daily clone is today", task_field(daily.tasks[1], "status"), "today")
+eq("daily clone progress fresh", task_field(daily.tasks[1], "progress"), 0)
+
+-- Catch-up straight to Monday (shell was off) skips the placeholder path: the
+-- closed instance matches the target day and is cloned as today.
+local catch_up = logic.plan_rollover(weekday_doc(100), "2026-11-16", local_ms(2026, 11, 16, 4, 5), 20)
+eq("catch-up to matching day clones", #catch_up.repeats, 1)
+eq("catch-up leaves no placeholder", #catch_up.tasks, 1)
+eq("catch-up clone is today", task_field(catch_up.tasks[1], "status"), "today")
+eq("catch-up clone due Monday", task_field(catch_up.tasks[1], "due_ms"),
+  logic.to_ordinal("2026-11-16") * 86400000 + 18 * 3600000)
+
+-- A rule that can never fire has no next occurrence, so it leaves no immortal
+-- placeholder in Pending.
+local never = logic.plan_rollover({
+  day = "2026-11-13",
+  tasks = {
+    { id = "n", title = "never", status = "today", progress = 100,
+      recurrence = { kind = "weekdays", days = {} } },
+  },
+}, "2026-11-14", local_ms(2026, 11, 14, 4, 5), 20)
+eq("unfireable rule leaves no placeholder", #never.tasks, 0)
+eq("unfireable rule clones nothing", #never.repeats, 0)
 
 -- ── recurrence helpers (issue #24) ──────────────────────────────────────────
 
