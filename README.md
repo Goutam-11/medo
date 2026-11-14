@@ -169,8 +169,9 @@ directory separately if you want a clean slate.
 
 - **Launcher:** type `/medo buy milk @17:00 #errand !high`. Tokens: `@HH:MM`, `@tomorrow`,
   `@mon`…`@sun`, `#tag`, `!low/!med/!high`; everything else stays in the title.
-- **Panel:** open the add field, type, press <kbd>Enter</kbd>. The field keeps focus for the next
-  capture.
+- **Panel:** the add field sits right under the tab strip, so it stays in reach however long the
+  list gets. Type, press <kbd>Enter</kbd>; the field keeps focus for the next capture. The list
+  under it scrolls, and an expanded row scrolls itself into view.
 - **Global shortcut:** bind the panel in your compositor — the plugin deliberately has no global
   or in-panel shortcuts.
 

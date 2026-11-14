@@ -286,13 +286,16 @@ prefix = "medo"
 glyph = "checklist"
 include_in_global_search = false
 
-# The five-tab surface. Auto-sized to its content up to max_height.
+# The five-tab surface. Auto-sized to its content up to max_height: the list
+# scrolls beyond that (panel.luau keeps the capture row pinned above the scroll),
+# and 800 is what a five-row day with the overdue banner and the footer needs
+# without slicing the footer's last line.
 [[panel]]
 id = "panel"
 entry = "panel.luau"
 width = 460
 height = "content"
-max_height = 760
+max_height = 800
 placement = "attached"
 position = "auto"
 open_near_click = true

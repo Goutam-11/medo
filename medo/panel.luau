@@ -841,7 +841,15 @@ editor_node = function(task)
   children[#children + 1] = ui.row({ gap = 6, align = "center" },
     { pending_button, ui.spacer({ flexGrow = 1 }), cancel, save })
 
-  return ui.column({ gap = 6, padding = 8, radius = 8, fill = "surface_container_highest" }, children)
+  -- the key is the scroll's revealKey target (see render): one per open, so
+  -- reopening the same row scrolls it back into view
+  return ui.column({
+    key = "editor-" .. task.id .. ":" .. epoch,
+    gap = 6,
+    padding = 8,
+    radius = 8,
+    fill = "surface_container_highest",
+  }, children)
 end
 
 -- ── add form ────────────────────────────────────────────────────────────────
@@ -1390,6 +1398,7 @@ function render()
   noctalia.setUpdateInterval(celebration and 1000 or 30000)
 
   local body
+  local pinned
   if celebration then
     body = celebration_body()
   elseif tab == "triage" then
@@ -1402,17 +1411,46 @@ function render()
     request_report(false)
     body = reports_body()
   elseif tab == "today" then
-    body = ui.column({ gap = 8 }, { list_body(), add_form() })
+    -- The capture row sits above the scroll, not below it: a capture-first
+    -- panel must keep the field reachable however long the list gets, and a
+    -- flexGrow scroll leaves nothing for a sibling that follows it (see below).
+    body = list_body()
+    pinned = add_form()
   else
     body = list_body()
   end
 
-  panel.render(ui.column({ gap = 10, padding = 14 }, {
-    header(),
-    tab_strip(),
-    body,
-    footer(),
-  }))
+  -- The panel is `height = "content"` under max_height, and whatever is taller
+  -- than that cap is simply not drawn: past ~5 rows the cards, the expanded
+  -- editor and the footer were clipped and nothing could drag them into view.
+  -- `ui.scroll` with flexGrow = 1 is the documented answer (ui docs, panel
+  -- sizing) and the only scrolling container at API 43.
+  --
+  -- Two host behaviours are load-bearing here, both measured on 5.4.1:
+  --  * the scroll must be the LAST child, and the only flexGrow one. A sibling
+  --    after it is not reserved for, so the layout hands the scroll the whole
+  --    remaining height and the sibling falls off the panel (that is why the
+  --    footer moved inside the scroll).
+  --  * revealKey found nothing while the body and the footer were listed as two
+  --    children of the scroll - the editor stayed below the fold - and works
+  --    once they are wrapped in one column. Hence the wrapper below.
+  -- revealKey re-applies when the value changes or the child reappears and
+  -- never on an unchanged re-render, so the user's own scrolling is kept.
+  local reveal
+  if editing then reveal = "editor-" .. editing.id .. ":" .. editing.epoch end
+  local scroller = ui.scroll({
+    key = "body-" .. tab .. (celebration and "-celebration" or ""),
+    flexGrow = 1,
+    revealKey = reveal,
+  }, {
+    ui.column({ gap = 10 }, { body, footer() }),
+  })
+
+  local children = { header(), tab_strip() }
+  if pinned then children[#children + 1] = pinned end
+  children[#children + 1] = scroller
+
+  panel.render(ui.column({ gap = 10, padding = 14 }, children))
 end
 
 -- ── keyboard + lifecycle ────────────────────────────────────────────────────
