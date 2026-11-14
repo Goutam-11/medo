@@ -159,7 +159,7 @@ back after ~8 s or on any click.
 |---|---|---|
 | service | `core` | `goutamsharma/medo:core` |
 | bar widget | `bar` | `goutamsharma/medo:bar` |
-| panel | `panel` | `goutamsharma/medo:panel` (width 460, `height = "content"`, `max_height = 760`, `attached`) |
+| panel | `panel` | `goutamsharma/medo:panel` (width 460, `height = "content"`, `max_height = 800`, `attached`) |
 | launcher provider | `quick` | prefix `medo`, `include_in_global_search = false` |
 
 ---
@@ -339,6 +339,13 @@ planned vs completed effort, longest streak, and a "what changed" line. Export a
 - **Row**: priority dot, title (strike-through when done), due chip (red when overdue), carried
   badge, repeat badge (`↻` for daily, `↻ M W F` for weekdays), inline slider, completion check.
   Hover reveals edit / park / delete.
+- **Scrolling**: `height = "content"` stops at `max_height`, and anything past that cap is not
+  drawn at all — so the body is a `ui.scroll` with `flexGrow = 1` and the panel column is
+  `header, tab strip, [capture row], scroll`. The capture row therefore sits **under the tab
+  strip**, above the list (the mock above still draws it under the rows): the field has to stay
+  reachable however long the day gets, and a `flexGrow` scroll leaves no room for a sibling that
+  follows it. The footer rides at the end of the scroll. The editor of an expanded row scrolls
+  into view through the scroll's `revealKey` (API 33).
 - **Slider**: 0–100 in steps of 5, wheel works, `onDragEnd` persists. Reaching 100 completes the
   row (strike, chime, moved to the done section) — dragging back below 100 un-completes.
 - **Repeat control**: the row editor carries `never` / `daily` / `weekdays`, and picking weekdays
@@ -507,7 +514,7 @@ form is what this machine uses; `.luau` edits hot-reload, `plugin.toml` needs
 | Panels cannot capture global keys (verified) | Capture-first keyboard, mouse for the rest, niri binds for global shortcuts |
 | Clock jumps, suspend/resume (no `onSuspend` at 43) | Every tick recomputes the logical day and reminder windows from `nowMs()`; stale reminders expire after 60 min |
 | Corrupted or half-written JSON | Atomic tmp+rename, schema version field, `.bak` restore path, backups kept 14 rollovers |
-| Panel height jumps while dragging a slider | `max_height` + inner `ui.scroll` for long lists |
+| Panel height jumps while dragging a slider | `max_height` + `ui.scroll` with `flexGrow = 1` for long lists; the scroll is the panel column's last child, because a sibling after it drops off the panel |
 | Re-firing toasts after a plugin reload | Dedupe keys persisted in `state.json` |
 | Repeats duplicate after a missed rollover | One open instance per title: a completed repeat that misses the new day leaves a pending placeholder, promoted in place on its next matching day; a clone is skipped whenever an open instance with the same title exists |
 | Carried tasks pile up invisibly | Pending shows a count badge on the bar tab, morning digest names the count, badges show `×N` |

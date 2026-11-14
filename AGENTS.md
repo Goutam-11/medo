@@ -105,6 +105,9 @@ Rules that keep it sane:
   `parse error: File could not be opened for reading`.
 - Declarative UI has **no animations**, notifications carry **no action buttons**,
   and prop lists are exhaustive per API level — unknown props are skipped silently.
+- A `flexGrow` `ui.scroll` must be the **last child** of the panel column: a sibling after it
+  gets no space and drops off the panel, and `revealKey` only matches inside its first child.
+  See `docs/DEV.md` § "Panel scrolling".
 - **Sound names are scoped to one entry runtime**, so only the service can load and
   play `assets/sounds/*.ogg`; `noctalia.loadFont` returns the family name
   (`Baloo 2` for the bundled SemiBold), not the file name.

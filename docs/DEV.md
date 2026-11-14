@@ -45,6 +45,31 @@ make lint      # noctalia plugins lint (needs the shell)
 ceiling, entry files that exist and are non-empty, settable types, panel sizing, and that every
 `label_key`/`description_key` resolves in `translations/en.json`.
 
+## Panel scrolling (learned the hard way)
+
+`[[panel]]` uses `height = "content"` with `max_height`, so the tree is clipped at the cap and
+nothing scrolls unless the body is a `ui.scroll`. Getting that right on 5.4.1 took three tries;
+the layout engine will not tell you, so:
+
+- **The scroll must be the panel column's last child, and the only `flexGrow` one.** A sibling
+  after it (`footer()`, the capture row) is not accounted for: the scroll is handed the whole
+  remaining height and the sibling falls off the panel. This is why the panel renders
+  `header, tab strip, [capture row], scroll{body, footer}`.
+- **`revealKey` only worked once the scroll had a single child.** With
+  `ui.scroll(props, { body, footer() })` the editor of an expanded row never scrolled into view;
+  wrapping them in one `ui.column` fixed it. Keep the wrapper.
+- **A fresh panel open renders before the surface reaches its final height**, so a reveal that
+  depends on `maxOffset` can land short. It is reliable on a re-render (the click-to-expand
+  path); after `noctalia msg panel-open … edit:<id>` expect to scroll by hand.
+- **An open panel keeps the tree it was rendered with.** Editing `panel.luau` hot-reloads the
+  entry, but a panel that is already on screen can keep painting the old tree — a fix looks
+  "not applied" until the panel is closed and reopened (or the file is touched again). Reopen
+  before believing a panel change did nothing.
+- **Verifying without a pointer**: there is no scroll injection here. Prove the viewport exists
+  from a screenshot (partial row + scrollbar) and the offset from a temporary `onScroll` log —
+  `noctalia.log(string.format("scroll %s/%s", offset, maxoffset))` — then remove it. To prove the
+  bottom is reachable, open the *last* row's editor and check it scrolls into view.
+
 ## Dev loop
 
 - Edit any `.luau` file → the shell hot-reloads that entry (watchers are logged).
